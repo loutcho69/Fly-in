@@ -8,13 +8,15 @@ silently ignores a malformed instruction.
 Grammar handled (blank lines and ``#`` comments are skipped):
 
     nb_drones: <positive integer>
-    start_hub: <name> <x> <y> [{key=value, ...}]
-    end_hub:   <name> <x> <y> [{key=value, ...}]
-    hub:       <name> <x> <y> [{key=value, ...}]
-    connection: <name>-<name>  [{key=value, ...}]
+    start_hub: <name> <x> <y> [key=value key=value]
+    end_hub:   <name> <x> <y> [key=value key=value]
+    hub:       <name> <x> <y> [key=value key=value]
+    connection: <name>-<name>  [key=value key=value]
 
-Every literal of that grammar is a module level constant, so adapting
-the parser to a slightly different spelling means editing one line.
+The metadata block is optional. Entries are separated by spaces, and a
+comma is accepted too so that both dialects seen in the wild parse the
+same way. Every literal of that grammar is a module level constant, so
+adapting the parser to a different spelling means editing one line.
 """
 
 from __future__ import annotations
@@ -22,14 +24,13 @@ from __future__ import annotations
 import re
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
-import colors
 from errors import FlyInError, ParseError, ValidationError
 from network import Network
 from zone import Zone, ZoneType
 
 COMMENT_PREFIX = "#"
-METADATA_OPEN = "{"
-METADATA_CLOSE = "}"
+METADATA_OPEN = "["
+METADATA_CLOSE = "]"
 KEYWORD_SEPARATOR = ":"
 CONNECTION_SEPARATOR = "-"
 
@@ -45,8 +46,10 @@ LINK_META_KEYS: FrozenSet[str] = frozenset(
     {"color", "max_link_capacity"}
 )
 
-NAME_PATTERN = re.compile(r"^[A-Za-z0-9_.]+$")
+NAME_PATTERN = re.compile(r"^[^\s\-\[\]:#]+$")
 INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
+COLOR_PATTERN = re.compile(r"^[^\s\[\]]+$")
+METADATA_SEPARATOR = re.compile(r"[,\s]+")
 
 
 class MapParser:
@@ -392,12 +395,9 @@ class MapParser:
         meta: Dict[str, str] = {}
         if not meta_raw:
             return meta
-        for entry in meta_raw.split(","):
-            entry = entry.strip()
+        for entry in METADATA_SEPARATOR.split(meta_raw):
             if not entry:
-                raise ParseError(
-                    index, raw, "empty entry in the metadata block"
-                )
+                continue
             key, separator, value = entry.partition("=")
             key = key.strip()
             value = value.strip()
@@ -424,9 +424,10 @@ class MapParser:
     def _check_name(name: str, index: int, raw: str) -> None:
         """Validate a zone name.
 
-        Names may not be empty and may only hold letters, digits,
-        underscores and dots: this forbids the spaces and the dashes
-        that would make the grammar ambiguous.
+        The subject allows any character except dashes and spaces, so
+        the pattern is a negated one rather than a whitelist. The
+        brackets, the colon and the comment marker are excluded as well
+        because they would make the grammar ambiguous.
 
         Args:
             name: the candidate name.
@@ -441,8 +442,8 @@ class MapParser:
         if not NAME_PATTERN.match(name):
             raise ParseError(
                 index, raw,
-                f"invalid zone name {name!r}: only letters, digits, "
-                "'_' and '.' are allowed (no space, no dash)",
+                f"invalid zone name {name!r}: any character is allowed "
+                "except spaces, dashes and the metadata delimiters",
             )
 
     @staticmethod
@@ -515,17 +516,20 @@ class MapParser:
     ) -> Optional[str]:
         """Read the ``color`` metadata, defaulting to None.
 
+        Only the *shape* of the name is checked, not its membership of
+        the palette: a map is not broken because it names a colour this
+        terminal cannot draw. The renderer falls back to the colour of
+        the zone type when it does not know the name.
+
         Raises:
-            ParseError: if the colour is not part of the palette.
+            ParseError: if the value is not a plain identifier.
         """
         value = meta.get("color")
         if value is None:
             return None
-        if not colors.is_supported(value):
-            available = ", ".join(sorted(colors.SUPPORTED_COLORS))
+        if not COLOR_PATTERN.match(value):
             raise ParseError(
-                index, raw,
-                f"unknown color {value!r} (available: {available})",
+                index, raw, f"invalid color name {value!r}"
             )
         return value
 
