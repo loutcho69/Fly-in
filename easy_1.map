@@ -1,0 +1,19 @@
+# Fly-in :: easy_1
+# Two parallel corridors, one of them faster but narrower.
+
+nb_drones: 4
+
+start_hub: base 0 3
+end_hub: delivery 10 3
+
+hub: alpha 3 1 {zone=priority, color=green}
+hub: beta 6 1
+hub: gamma 3 5 {max_drones=2, color=cyan}
+hub: delta 6 5 {zone=restricted, color=orange}
+
+connection: base-alpha
+connection: alpha-beta {max_link_capacity=2}
+connection: beta-delivery
+connection: base-gamma
+connection: gamma-delta
+connection: delta-delivery

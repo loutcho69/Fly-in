@@ -1,0 +1,6 @@
+# The simulator itself only uses the Python standard library:
+# no graph library is allowed by the subject, and the terminal
+# renderer relies on plain ANSI escape codes.
+# These two tools are the ones required by the Makefile `lint` rule.
+flake8>=7.0.0
+mypy>=1.8.0
