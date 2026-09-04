@@ -1,0 +1,5 @@
+# VII.4: max_link_capacity must be a positive integer
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+connection: s-e [max_link_capacity=-2]

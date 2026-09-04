@@ -1,0 +1,14 @@
+# Fly-in :: easy_2
+# One drone, one straight line. The smallest useful map.
+
+nb_drones: 1
+
+start_hub: launch 0 0
+end_hub: pad 3 0
+
+hub: waypoint 1 0
+hub: relay 2 0
+
+connection: launch-waypoint
+connection: waypoint-relay
+connection: relay-pad

@@ -108,15 +108,36 @@ class MinCostFlow:
         return index
 
     def flow_on(self, arc: int) -> int:
-        """Number of units currently carried by a forward arc."""
+        """Number of units currently carried by a forward arc.
+
+        Args:
+            arc: index of a forward arc.
+
+        Returns:
+            The number of units it carries.
+        """
         return self._arcs[arc ^ 1].capacity
 
     def outgoing(self, node: int) -> List[int]:
-        """Indices of the arcs leaving a node."""
+        """Indices of the arcs leaving a node.
+
+        Args:
+            node: index of a node.
+
+        Returns:
+            The indices of the arcs leaving it.
+        """
         return self._adjacency[node]
 
     def target_of(self, arc: int) -> int:
-        """Index of the node an arc points to."""
+        """Index of the node an arc points to.
+
+        Args:
+            arc: index of an arc.
+
+        Returns:
+            The index of the node it points to.
+        """
         return self._arcs[arc].target
 
     def augment(self, source: int, sink: int) -> bool:
@@ -204,12 +225,26 @@ class RouteSolver:
 
     @staticmethod
     def _entry(position: int) -> int:
-        """Index of the ``in`` node of the zone at ``position``."""
+        """Index of the ``in`` node of the zone at ``position``.
+
+        Args:
+            position: index of the zone.
+
+        Returns:
+            The index of its ``in`` node.
+        """
         return 2 * position
 
     @staticmethod
     def _exit(position: int) -> int:
-        """Index of the ``out`` node of the zone at ``position``."""
+        """Index of the ``out`` node of the zone at ``position``.
+
+        Args:
+            position: index of the zone.
+
+        Returns:
+            The index of its ``out`` node.
+        """
         return 2 * position + 1
 
     @property

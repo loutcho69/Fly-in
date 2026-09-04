@@ -1,0 +1,5 @@
+# VII.4: unknown instruction
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+room: a 1 0

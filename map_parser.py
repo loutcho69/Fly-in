@@ -46,10 +46,12 @@ LINK_META_KEYS: FrozenSet[str] = frozenset(
     {"color", "max_link_capacity"}
 )
 
-NAME_PATTERN = re.compile(r"^[^\s\-\[\]:#]+$")
+NAME_PATTERN = re.compile(r"^[^\s\-\[\]]+$")
 INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 COLOR_PATTERN = re.compile(r"^[^\s\[\]]+$")
 METADATA_SEPARATOR = re.compile(r"[,\s]+")
+COMMENT_PATTERN = re.compile(r"(?:^|\s)" + re.escape(COMMENT_PREFIX))
+OPEN_BLOCK_PATTERN = re.compile(r"(?:^|\s)" + re.escape(METADATA_OPEN))
 
 
 class MapParser:
@@ -139,14 +141,22 @@ class MapParser:
     def _strip_comment(raw: str) -> str:
         """Remove the comment part of a line and the surrounding spaces.
 
+        A ``#`` only opens a comment at the start of a line or after a
+        blank, which is how comments are written everywhere in the
+        provided maps. Anywhere else it is an ordinary character, so a
+        zone called ``sector#3`` and a colour written ``#ff0000`` are
+        both read as intended.
+
         Args:
             raw: a raw line of the file.
 
         Returns:
             The meaningful part of the line, possibly empty.
         """
-        content, _, _ = raw.partition(COMMENT_PREFIX)
-        return content.strip()
+        found = COMMENT_PATTERN.search(raw)
+        if found is None:
+            return raw.strip()
+        return raw[: found.start()].strip()
 
     def _parse_header(self, content: str, index: int, raw: str) -> Network:
         """Parse the ``nb_drones`` declaration.
@@ -344,34 +354,40 @@ class MapParser:
             the braces, without the braces, and is empty when the line
             carries no metadata.
 
+        The block is looked for at the *end* of the line, and the
+        opening bracket is searched from the right. A zone name is
+        therefore allowed to contain brackets, as long as the line does
+        not end with one.
+
         Raises:
-            ParseError: if the braces are unbalanced or if something
-                follows the closing brace.
+            ParseError: if a block is opened and never closed, or if
+                anything follows the closing bracket.
         """
-        opening = payload.find(METADATA_OPEN)
-        closing = payload.find(METADATA_CLOSE)
-        if opening == -1 and closing == -1:
-            return payload.strip(), ""
-        if opening == -1:
-            raise ParseError(
-                index, raw,
-                f"unexpected {METADATA_CLOSE!r} without a matching "
-                f"{METADATA_OPEN!r}",
-            )
-        if closing == -1:
-            raise ParseError(
-                index, raw, f"unterminated metadata block, missing "
-                f"{METADATA_CLOSE!r}",
-            )
-        if closing < opening:
-            raise ParseError(index, raw, "metadata braces are inverted")
-        trailing = payload[closing + 1:].strip()
-        if trailing:
+        if payload.endswith(METADATA_CLOSE):
+            opening = payload.rfind(METADATA_OPEN)
+            if opening == -1:
+                raise ParseError(
+                    index, raw,
+                    f"unexpected {METADATA_CLOSE!r} without a matching "
+                    f"{METADATA_OPEN!r}",
+                )
+            body = payload[:opening].strip()
+            inside = payload[opening + 1:-1].strip()
+            return body, inside
+        if OPEN_BLOCK_PATTERN.search(payload):
+            closing = payload.rfind(METADATA_CLOSE)
+            if closing == -1:
+                raise ParseError(
+                    index, raw,
+                    "unterminated metadata block, missing "
+                    f"{METADATA_CLOSE!r}",
+                )
+            trailing = payload[closing + 1:].strip()
             raise ParseError(
                 index, raw,
                 f"unexpected text {trailing!r} after the metadata block",
             )
-        return payload[:opening].strip(), payload[opening + 1:closing].strip()
+        return payload.strip(), ""
 
     def _parse_metadata(
         self, meta_raw: str, allowed: FrozenSet[str], index: int, raw: str
@@ -425,9 +441,14 @@ class MapParser:
         """Validate a zone name.
 
         The subject allows any character except dashes and spaces, so
-        the pattern is a negated one rather than a whitelist. The
-        brackets, the colon and the comment marker are excluded as well
-        because they would make the grammar ambiguous.
+        the pattern is a negated one rather than a whitelist. Colons and
+        hashes are accepted, because a comment needs a blank before its
+        ``#`` and the keyword separator is the first colon of the line.
+        Square brackets are not: a metadata block is recognised by a
+        line ending with ``]``, so a name such as ``a[1]`` at the end of
+        a connection could not be told apart from a block. Rejecting it
+        at the declaration is better than accepting a name that the
+        connections would be unable to reference.
 
         Args:
             name: the candidate name.
@@ -443,7 +464,8 @@ class MapParser:
             raise ParseError(
                 index, raw,
                 f"invalid zone name {name!r}: any character is allowed "
-                "except spaces, dashes and the metadata delimiters",
+                "except spaces, dashes and the brackets that delimit "
+                "the metadata",
             )
 
     @staticmethod
@@ -501,6 +523,14 @@ class MapParser:
 
         Raises:
             ParseError: if the value is not a known zone type.
+
+        Args:
+            meta: the parsed metadata of the line.
+            index: 1-based line number.
+            raw: the original line.
+
+        Returns:
+            The type of the zone.
         """
         value = meta.get("zone")
         if value is None:
@@ -523,6 +553,14 @@ class MapParser:
 
         Raises:
             ParseError: if the value is not a plain identifier.
+
+        Args:
+            meta: the parsed metadata of the line.
+            index: 1-based line number.
+            raw: the original line.
+
+        Returns:
+            The colour name, or None.
         """
         value = meta.get("color")
         if value is None:
@@ -536,7 +574,16 @@ class MapParser:
     def _max_drones_from(
         self, meta: Dict[str, str], index: int, raw: str
     ) -> int:
-        """Read the ``max_drones`` metadata, defaulting to 1."""
+        """Read the ``max_drones`` metadata, defaulting to 1.
+
+        Args:
+            meta: the parsed metadata of the line.
+            index: 1-based line number.
+            raw: the original line.
+
+        Returns:
+            The occupancy limit of the zone.
+        """
         value = meta.get("max_drones")
         if value is None:
             return 1
@@ -545,22 +592,19 @@ class MapParser:
     def _link_capacity_from(
         self, meta: Dict[str, str], index: int, raw: str
     ) -> int:
-        """Read the ``max_link_capacity`` metadata, defaulting to 1."""
+        """Read the ``max_link_capacity`` metadata, defaulting to 1.
+
+        Args:
+            meta: the parsed metadata of the line.
+            index: 1-based line number.
+            raw: the original line.
+
+        Returns:
+            The capacity of the connection.
+        """
         value = meta.get("max_link_capacity")
         if value is None:
             return 1
         return self._to_positive_int(
             value, "max_link_capacity", index, raw
         )
-
-
-def parse_map(path: str) -> Network:
-    """Convenience wrapper around :class:`MapParser`.
-
-    Args:
-        path: path of the ``.map`` file.
-
-    Returns:
-        The validated network described by the file.
-    """
-    return MapParser(path).parse()

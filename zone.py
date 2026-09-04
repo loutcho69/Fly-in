@@ -193,7 +193,14 @@ class Zone:
         return occupancy + incoming <= capacity
 
     def __eq__(self, other: object) -> bool:
-        """Two zones are equal when they share the same name."""
+        """Two zones are equal when they share the same name.
+
+        Args:
+            other: the object to compare with.
+
+        Returns:
+            True when both are zones with the same name.
+        """
         if not isinstance(other, Zone):
             return NotImplemented
         return self._name == other.name

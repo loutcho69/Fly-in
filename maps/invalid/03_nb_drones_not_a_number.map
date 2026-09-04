@@ -1,0 +1,4 @@
+# VII.4: nb_drones must be an integer
+nb_drones: many
+start_hub: s 0 0
+end_hub: e 2 0

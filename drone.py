@@ -164,7 +164,11 @@ class Drone:
         return self._route.moves - self._step
 
     def can_move(self) -> bool:
-        """True when the drone is waiting and still has a move to make."""
+        """True when the drone is waiting and still has a move to make.
+
+        Returns:
+            True when the drone is waiting with a move left.
+        """
         if self._state is not DroneState.WAITING:
             return False
         return self.destination is not None

@@ -36,6 +36,11 @@ class Metrics:
         self._result = result
 
     @property
+    def network(self) -> Network:
+        """The map the mission was flown on."""
+        return self._network
+
+    @property
     def nb_drones(self) -> int:
         """Number of drones in the fleet."""
         return self._network.nb_drones
@@ -113,8 +118,75 @@ class Metrics:
             drone.arrival_turn or 0 for drone in self._result.drones
         )
 
+    @property
+    def moves_per_turn(self) -> float:
+        """Average number of drones moved per turn.
+
+        One of the secondary metrics the subject suggests: it measures
+        how well the plan fills each turn instead of leaving drones
+        idle.
+        """
+        if self.total_turns == 0:
+            return 0.0
+        return self.total_moves / self.total_turns
+
+    @property
+    def turns_per_drone(self) -> float:
+        """Average number of turns a drone spent in the air.
+
+        A second metric suggested by the subject. It counts from the
+        take-off of the first drone, so a large fleet on a narrow map
+        raises it even when every drone flies a short route.
+        """
+        arrivals = [
+            drone.arrival_turn
+            for drone in self._result.drones
+            if drone.arrival_turn is not None
+        ]
+        if not arrivals:
+            return 0.0
+        return sum(arrivals) / len(arrivals)
+
+    @property
+    def total_path_cost(self) -> int:
+        """Sum of the weighted movement costs across all drones.
+
+        The third metric the subject suggests. A ``restricted`` zone
+        counts double, so the figure is the total number of turns the
+        fleet would need with no congestion at all, and the difference
+        with :attr:`idle_turns` is exactly what the queues cost.
+        """
+        return sum(
+            drone.route.travel_time for drone in self._result.drones
+        )
+
+    def peak_occupancy(self) -> Dict[str, int]:
+        """Largest number of drones each zone held at once.
+
+        The two hubs are left out: they have no capacity limit, so they
+        would always top the list and hide the zones that actually
+        constrain the mission.
+
+        Returns:
+            A dictionary mapping a zone name to its peak occupancy,
+            busiest first.
+        """
+        peaks: Dict[str, int] = {}
+        for turn in self._result.turns:
+            for name, count in turn.states.items():
+                if self._is_hub(name):
+                    continue
+                peaks[name] = max(peaks.get(name, 0), count)
+        return dict(
+            sorted(peaks.items(), key=lambda item: (-item[1], item[0]))
+        )
+
     def zone_visits(self) -> Dict[str, int]:
         """Count how many drones went through each zone.
+
+        The two hubs are left out for the same reason as in
+        :meth:`peak_occupancy`: every drone starts on one and ends on
+        the other, so counting them says nothing about the map.
 
         Returns:
             A dictionary mapping a zone name to a number of visits,
@@ -123,11 +195,24 @@ class Metrics:
         visits: Dict[str, int] = {}
         for turn in self._result.turns:
             for move in turn.moves:
-                if move.in_flight:
+                if move.in_flight or self._is_hub(move.location):
                     continue
                 visits[move.location] = visits.get(move.location, 0) + 1
         return dict(
             sorted(visits.items(), key=lambda item: (-item[1], item[0]))
+        )
+
+    def _is_hub(self, name: str) -> bool:
+        """Tell whether a name is one of the two unlimited hubs.
+
+        Args:
+            name: the name of a zone.
+
+        Returns:
+            True for the start hub and the end hub.
+        """
+        return name in (
+            self._network.start.name, self._network.end.name
         )
 
     def busiest_zones(self, count: int = 3) -> Tuple[Tuple[str, int], ...]:

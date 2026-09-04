@@ -1,0 +1,5 @@
+# VII.4: zone names cannot contain a dash
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: a-b 1 0

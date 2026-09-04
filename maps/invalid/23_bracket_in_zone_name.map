@@ -1,0 +1,7 @@
+# VII.4: square brackets delimit the metadata and cannot appear
+# inside a zone name, or a connection could not reference it
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: a[1] 1 0
+connection: s-a[1]

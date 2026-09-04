@@ -1,0 +1,6 @@
+# VII.4: metadata must be syntactically valid
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: a 1 0 [speed=3]
+connection: s-a

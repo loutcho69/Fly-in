@@ -82,6 +82,13 @@ class PathFinder:
 
         Raises:
             SimulationError: when no route exists at all.
+
+        Args:
+            forbidden_zones: zones that must not be used.
+            forbidden_links: connections that must not be used.
+
+        Returns:
+            The fastest path.
         """
         path = self.shortest_path(forbidden_zones, forbidden_links)
         if path is None:
@@ -202,6 +209,9 @@ class PathFinder:
 
         Blocked zones and the zones lying behind them are excluded. Used
         by the renderer to report the dead parts of a map.
+
+        Returns:
+            The names of the zones a drone can reach.
         """
         start = self._network.start
         seen: Set[str] = {start.name}
@@ -222,6 +232,9 @@ class PathFinder:
         from the start hub, or when the end hub cannot be reached from
         it. The last case is detected by searching backwards, which the
         graph allows since every connection is bidirectional.
+
+        Returns:
+            The names of the zones no drone can ever use.
         """
         forward = self.reachable_zones()
         backward = self._reachable_from_end()
@@ -232,7 +245,11 @@ class PathFinder:
         )
 
     def _reachable_from_end(self) -> FrozenSet[str]:
-        """Names of the zones from which the end hub can be reached."""
+        """Names of the zones from which the end hub can be reached.
+
+        Returns:
+            The names of the zones the end hub is reachable from.
+        """
         end = self._network.end
         seen: Set[str] = {end.name}
         queue: List[str] = [end.name]

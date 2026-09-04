@@ -1,0 +1,32 @@
+# Fly-in :: medium_2
+# Capacities everywhere: a wide hall lets three routes share a
+# single zone, while the narrow bypass only takes one drone.
+
+nb_drones: 12
+
+start_hub: tarmac 0 0
+end_hub: dropzone 6 0
+
+hub: hall 3 0 [max_drones=3 color=blue]
+hub: gateA 1 -2
+hub: gateB 1 0
+hub: gateC 1 2
+hub: exitA 5 -2
+hub: exitB 5 0
+hub: exitC 5 2
+hub: bypass 3 5 [zone=restricted color=orange]
+
+connection: tarmac-gateA
+connection: tarmac-gateB
+connection: tarmac-gateC
+connection: gateA-hall
+connection: gateB-hall
+connection: gateC-hall
+connection: hall-exitA
+connection: hall-exitB
+connection: hall-exitC
+connection: exitA-dropzone
+connection: exitB-dropzone
+connection: exitC-dropzone
+connection: tarmac-bypass
+connection: bypass-dropzone

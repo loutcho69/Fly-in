@@ -6,8 +6,13 @@ MYPY_FLAGS  := --warn-return-any --warn-unused-ignores \
                --ignore-missing-imports --disallow-untyped-defs \
                --check-untyped-defs
 
+# Putting the virtual environment first on PATH lets the lint rules run
+# the exact commands the subject asks for, "flake8 ." and "mypy . ...",
+# while still using the tools installed by `make install`.
+export PATH := $(CURDIR)/$(VENV_BIN):$(PATH)
+
 .DEFAULT_GOAL := run
-.PHONY: install run log debug clean lint lint-strict test
+.PHONY: install run log states debug clean lint lint-strict test
 
 # The simulator itself needs nothing but the standard library, so the
 # dependencies are only the two linters. They are installed inside a
@@ -29,6 +34,9 @@ run:
 log:
 	$(PYTHON) main.py $(MAP)
 
+states:
+	$(PYTHON) main.py $(MAP) --zones
+
 debug:
 	$(PYTHON) -m pdb main.py $(MAP)
 
@@ -36,12 +44,12 @@ test:
 	$(PYTHON) check.py
 
 lint: install
-	$(VENV_BIN)/flake8 .
-	$(VENV_BIN)/mypy . $(MYPY_FLAGS)
+	flake8 .
+	mypy . $(MYPY_FLAGS)
 
 lint-strict: install
-	$(VENV_BIN)/flake8 .
-	$(VENV_BIN)/mypy . --strict
+	flake8 .
+	mypy . --strict
 
 clean:
 	rm -rf .mypy_cache .pytest_cache

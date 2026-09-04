@@ -109,11 +109,22 @@ class Path:
         return self._zones[step + 1].entry_cost
 
     def zone_names(self) -> Tuple[str, ...]:
-        """Names of the zones, in order."""
+        """Names of the zones, in order.
+
+        Returns:
+            The names of the zones, in order.
+        """
         return tuple(zone.name for zone in self._zones)
 
     def shares_zone_with(self, other: "Path") -> bool:
-        """Tell whether two paths cross a common intermediate zone."""
+        """Tell whether two paths cross a common intermediate zone.
+
+        Args:
+            other: the path to compare with.
+
+        Returns:
+            True when both cross a common intermediate zone.
+        """
         mine = {zone.name for zone in self.intermediates}
         theirs = {zone.name for zone in other.intermediates}
         return not mine.isdisjoint(theirs)
@@ -123,7 +134,14 @@ class Path:
         return len(self._zones)
 
     def __eq__(self, other: object) -> bool:
-        """Two paths are equal when they cross the same zones in order."""
+        """Two paths are equal when they cross the same zones in order.
+
+        Args:
+            other: the object to compare with.
+
+        Returns:
+            True when both cross the same zones in the same order.
+        """
         if not isinstance(other, Path):
             return NotImplemented
         return self.zone_names() == other.zone_names()

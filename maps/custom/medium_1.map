@@ -1,0 +1,22 @@
+# Fly-in :: medium_1
+# The greedy trap. Taking the fastest route first and banning its
+# zones finds ONE route; the flow solver finds TWO, because it can
+# undo the use of the connection alpha-beta.
+
+nb_drones: 10
+
+start_hub: base 0 0
+end_hub: hangar 6 0
+
+hub: alpha 2 0 [color=cyan]
+hub: beta 4 0 [color=cyan]
+hub: north 2 -3 [zone=priority color=green]
+hub: south 4 3 [color=magenta]
+
+connection: base-alpha
+connection: alpha-beta
+connection: beta-hangar
+connection: base-north
+connection: north-beta
+connection: alpha-south
+connection: south-hangar

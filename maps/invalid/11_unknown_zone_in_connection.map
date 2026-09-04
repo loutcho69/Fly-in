@@ -1,0 +1,5 @@
+# VII.4: connections must link previously defined zones
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+connection: s-ghost

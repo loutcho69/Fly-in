@@ -24,13 +24,12 @@ import tempfile
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 from errors import FlyInError
-from map_parser import MapParser
+from mission import Mission
 from network import Network
-from router import Router
-from simulator import SimulationResult, Simulator
+from simulator import SimulationResult
 
 MAPS_DIRECTORY = "maps"
-INVALID_DIRECTORY = os.path.join("maps", "invalid")
+INVALID_DIRECTORY = "invalid"
 
 
 class CheckError(Exception):
@@ -278,196 +277,234 @@ class TraceChecker:
 
     @staticmethod
     def _key_of(link_name: str) -> Tuple[str, str]:
-        """Canonical key of a connection given its display name."""
+        """Canonical key of a connection given its display name.
+
+        Args:
+            link_name: display name of a connection, ``first-second``.
+
+        Returns:
+            The two zone names, sorted.
+        """
         first, _, second = link_name.partition("-")
         low, high = sorted((first, second))
         return low, high
 
 
-def check_map(path: str) -> str:
-    """Run and validate one map.
+class Suite:
+    """The whole verification campaign: maps, error paths and fuzzing."""
 
-    Args:
-        path: path of the map file.
+    def __init__(self, maps_directory: str = MAPS_DIRECTORY) -> None:
+        """Prepare a campaign.
 
-    Returns:
-        A one line report.
+        Args:
+            maps_directory: root directory holding the maps.
+        """
+        self._directory = maps_directory
 
-    Raises:
-        CheckError: if the trace breaks a rule.
-    """
-    network = MapParser(path).parse()
-    plan = Router(network).plan()
-    result = Simulator(network, plan).run()
-    TraceChecker(network, result).verify()
-    if plan.estimated_turns != result.total_turns:
-        raise CheckError(
-            f"{path}: the router predicted {plan.estimated_turns} turns "
-            f"but the simulation took {result.total_turns}"
+    @staticmethod
+    def check_map(path: str) -> str:
+        """Run and validate one map.
+
+        Args:
+            path: path of the map file.
+
+        Returns:
+            A one line report.
+
+        Raises:
+            CheckError: if the trace breaks a rule, or if the duration
+                the router predicted differs from the one played.
+        """
+        mission = Mission.load(path)
+        TraceChecker(mission.network, mission.result).verify()
+        predicted = mission.plan.estimated_turns
+        played = mission.result.total_turns
+        if predicted != played:
+            raise CheckError(
+                f"{path}: the router predicted {predicted} turns but the "
+                f"simulation took {played}"
+            )
+        return (
+            f"{mission.name:<30} "
+            f"{mission.network.nb_drones:>3} drones  "
+            f"{len(mission.plan.routes):>2} route(s)  "
+            f"{played:>3} turns"
         )
-    return (
-        f"{os.path.basename(path):<28} "
-        f"{network.nb_drones:>3} drones  "
-        f"{len(plan.routes):>2} route(s)  "
-        f"{result.total_turns:>3} turns"
-    )
 
+    def check_invalid(self) -> int:
+        """Check that every deliberately broken map is rejected.
 
-def random_map(generator: random.Random) -> str:
-    """Build the text of a random map.
+        A parser that accepts everything is as wrong as one that accepts
+        nothing, so the error paths deserve a test of their own.
 
-    Args:
-        generator: the seeded random source.
+        Returns:
+            The number of maps that were correctly rejected.
 
-    Returns:
-        The content of a ``.map`` file.
-    """
-    count = generator.randint(2, 7)
-    names = [f"z{number}" for number in range(count)]
-    lines = [
-        f"nb_drones: {generator.randint(1, 15)}",
-        "start_hub: start 0 0",
-        "end_hub: finish 30 0",
-    ]
-    for position, name in enumerate(names):
-        options: List[str] = []
-        kind = generator.choice(
-            ["normal", "normal", "priority", "restricted", "blocked"]
-        )
-        if kind != "normal":
-            options.append(f"zone={kind}")
-        if generator.random() < 0.3:
-            options.append(f"max_drones={generator.randint(1, 3)}")
-        suffix = " [" + " ".join(options) + "]" if options else ""
-        lines.append(f"hub: {name} {position} {position % 5}{suffix}")
-    for first, second in itertools.combinations(
-        ["start", "finish"] + names, 2
-    ):
-        if generator.random() < 0.35:
-            capacity = ""
+        Raises:
+            CheckError: if one of them is accepted.
+        """
+        rejected = 0
+        broken = os.path.join(self._directory, INVALID_DIRECTORY)
+        for path in self.collect_maps(broken):
+            try:
+                self.check_map(path)
+            except FlyInError:
+                rejected += 1
+                continue
+            except CheckError:
+                pass
+            raise CheckError(f"{path}: this map should have been rejected")
+        return rejected
+
+    @staticmethod
+    def collect_maps(directory: str) -> List[str]:
+        """List the map files of a directory tree, sorted by path.
+
+        Args:
+            directory: the directory to scan.
+
+        Returns:
+            The paths of the map files it holds.
+        """
+        if not os.path.isdir(directory):
+            return []
+        found: List[str] = []
+        for root, _, names in os.walk(directory):
+            if os.path.basename(root) == INVALID_DIRECTORY:
+                if root != directory:
+                    continue
+            found.extend(
+                os.path.join(root, name)
+                for name in names
+                if name.endswith((".map", ".txt"))
+            )
+        return sorted(found)
+
+    def playable_maps(self) -> List[str]:
+        """Every map meant to be solvable, broken ones excluded.
+
+        Returns:
+            The paths of the maps meant to be solvable.
+        """
+        return [
+            path
+            for path in self.collect_maps(self._directory)
+            if INVALID_DIRECTORY not in path.split(os.sep)
+        ]
+
+    @staticmethod
+    def random_map(generator: random.Random) -> str:
+        """Build the text of a random map.
+
+        Args:
+            generator: the seeded random source.
+
+        Returns:
+            The content of a map file.
+        """
+        count = generator.randint(2, 7)
+        names = [f"z{number}" for number in range(count)]
+        lines = [
+            f"nb_drones: {generator.randint(1, 15)}",
+            "start_hub: start 0 0",
+            "end_hub: finish 30 0",
+        ]
+        for position, name in enumerate(names):
+            options: List[str] = []
+            kind = generator.choice(
+                ["normal", "normal", "priority", "restricted", "blocked"]
+            )
+            if kind != "normal":
+                options.append(f"zone={kind}")
             if generator.random() < 0.3:
-                capacity = (
-                    " [max_link_capacity="
-                    f"{generator.randint(1, 3)}]"
-                )
-            lines.append(f"connection: {first}-{second}{capacity}")
-    return "\n".join(lines) + "\n"
+                options.append(f"max_drones={generator.randint(1, 3)}")
+            suffix = " [" + " ".join(options) + "]" if options else ""
+            lines.append(f"hub: {name} {position} {position % 5}{suffix}")
+        for first, second in itertools.combinations(
+            ["start", "finish"] + names, 2
+        ):
+            if generator.random() < 0.35:
+                capacity = ""
+                if generator.random() < 0.3:
+                    capacity = (
+                        " [max_link_capacity="
+                        f"{generator.randint(1, 3)}]"
+                    )
+                lines.append(f"connection: {first}-{second}{capacity}")
+        return "\n".join(lines) + "\n"
 
+    def fuzz(self, rounds: int, seed: int) -> int:
+        """Generate random maps and validate every solvable one.
 
-def fuzz(rounds: int, seed: int) -> int:
-    """Generate random maps and validate every solvable one.
+        Args:
+            rounds: how many maps to generate.
+            seed: seed of the random source, for reproducibility.
 
-    Args:
-        rounds: how many maps to generate.
-        seed: seed of the random source, for reproducibility.
+        Returns:
+            The number of maps that were solvable and checked.
 
-    Returns:
-        The number of maps that were actually solvable and checked.
-    """
-    generator = random.Random(seed)
-    checked = 0
-    for _ in range(rounds):
-        content = random_map(generator)
-        handle, path = tempfile.mkstemp(suffix=".map")
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            stream.write(content)
-        try:
-            check_map(path)
-            checked += 1
-        except CheckError as error:
-            print(content)
-            raise CheckError(f"{error} on the map above") from error
-        except FlyInError:
-            pass
-        finally:
-            os.remove(path)
-    return checked
+        Raises:
+            CheckError: on the first trace that breaks a rule.
+        """
+        generator = random.Random(seed)
+        checked = 0
+        for _ in range(rounds):
+            content = self.random_map(generator)
+            handle, path = tempfile.mkstemp(suffix=".map")
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(content)
+            try:
+                self.check_map(path)
+                checked += 1
+            except CheckError as error:
+                print(content)
+                raise CheckError(f"{error} on the map above") from error
+            except FlyInError:
+                pass
+            finally:
+                os.remove(path)
+        return checked
 
+    @classmethod
+    def main(cls, argv: Optional[List[str]] = None) -> int:
+        """Entry point of the checker.
 
-def collect_maps(directory: str) -> List[str]:
-    """List the valid maps of a directory, sorted by name.
+        Args:
+            argv: command line arguments, defaulting to ``sys.argv``.
 
-    Args:
-        directory: the directory to scan.
-
-    Returns:
-        The paths of the map files it holds, sub-directories included.
-    """
-    if not os.path.isdir(directory):
-        return []
-    found: List[str] = []
-    for root, _, names in os.walk(directory):
-        if os.path.basename(root) == "invalid" and root != directory:
-            continue
-        found.extend(
-            os.path.join(root, name)
-            for name in names
-            if name.endswith(".map") or name.endswith(".txt")
+        Returns:
+            0 when everything passes, 1 otherwise.
+        """
+        parser = argparse.ArgumentParser(
+            prog="check",
+            description="Validate the simulator against the rules.",
         )
-    return sorted(found)
-
-
-def check_invalid(directory: str) -> int:
-    """Check that every deliberately broken map is rejected.
-
-    A parser that accepts everything is as wrong as one that accepts
-    nothing, so the error paths deserve a test of their own.
-
-    Args:
-        directory: directory holding the broken maps.
-
-    Returns:
-        The number of maps that were correctly rejected.
-
-    Raises:
-        CheckError: if one of them is accepted.
-    """
-    rejected = 0
-    for path in collect_maps(directory):
+        parser.add_argument("maps", nargs="*", help="maps to check")
+        parser.add_argument(
+            "--fuzz", type=int, default=200, help="number of random maps"
+        )
+        parser.add_argument(
+            "--seed", type=int, default=1234, help="random seed"
+        )
+        options = parser.parse_args(argv)
+        suite = cls()
+        paths = options.maps or suite.playable_maps()
         try:
-            check_map(path)
-        except FlyInError:
-            rejected += 1
-            continue
-        except CheckError:
-            pass
-        raise CheckError(f"{path}: this map should have been rejected")
-    return rejected
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    """Entry point of the checker.
-
-    Args:
-        argv: command line arguments, defaulting to ``sys.argv``.
-
-    Returns:
-        0 when everything passes, 1 otherwise.
-    """
-    parser = argparse.ArgumentParser(
-        prog="check", description="Validate the simulator against the rules."
-    )
-    parser.add_argument("maps", nargs="*", help="maps to check")
-    parser.add_argument(
-        "--fuzz", type=int, default=200, help="number of random maps"
-    )
-    parser.add_argument("--seed", type=int, default=1234, help="random seed")
-    options = parser.parse_args(argv)
-    paths = options.maps or collect_maps(MAPS_DIRECTORY)
-    try:
-        for path in paths:
-            print("  " + check_map(path))
-        if not options.maps:
-            rejected = check_invalid(INVALID_DIRECTORY)
-            print(f"  invalid maps: {rejected} correctly rejected")
-            checked = fuzz(options.fuzz, options.seed)
-            print(f"  fuzzing: {checked} solvable random maps validated")
-    except (CheckError, FlyInError) as error:
-        print(f"FAILED: {error}", file=sys.stderr)
-        return 1
-    print("all checks passed")
-    return 0
+            for path in paths:
+                print("  " + suite.check_map(path))
+            if not options.maps:
+                rejected = suite.check_invalid()
+                print(f"  invalid maps: {rejected} correctly rejected")
+                checked = suite.fuzz(options.fuzz, options.seed)
+                print(
+                    f"  fuzzing: {checked} solvable random maps validated"
+                )
+        except (CheckError, FlyInError) as error:
+            print(f"FAILED: {error}", file=sys.stderr)
+            return 1
+        print("all checks passed")
+        return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(Suite.main())

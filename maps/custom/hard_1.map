@@ -1,0 +1,37 @@
+# Fly-in :: hard_1
+# A dense grid with mixed capacities, priority lanes, a restricted
+# shortcut and a dead branch. Stress test for the flow solver.
+
+nb_drones: 30
+
+start_hub: hq 0 0
+end_hub: site 8 0
+
+hub: n1 2 -4 [zone=priority]
+hub: n2 4 -4 [zone=priority]
+hub: n3 6 -4
+hub: m1 2 0 [max_drones=2]
+hub: m2 4 0 [max_drones=2 color=blue]
+hub: m3 6 0
+hub: s1 2 4
+hub: s2 4 4 [zone=restricted color=orange]
+hub: s3 6 4
+hub: deadend 4 8
+
+connection: hq-n1
+connection: n1-n2 [max_link_capacity=2]
+connection: n2-n3
+connection: n3-site
+connection: hq-m1 [max_link_capacity=2]
+connection: m1-m2 [max_link_capacity=2]
+connection: m2-m3 [max_link_capacity=2]
+connection: m3-site [max_link_capacity=2]
+connection: hq-s1
+connection: s1-s2
+connection: s2-s3
+connection: s3-site
+connection: n2-m2
+connection: m2-s2
+connection: s1-deadend
+connection: m1-n1
+connection: m3-n3

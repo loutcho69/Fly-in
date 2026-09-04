@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-import colors
+from colors import BOLD, PALETTE, RESET
 from metrics import Metrics
 from network import Network
 from router import RoutePlan
@@ -52,25 +52,76 @@ class Renderer:
         self._use_color = use_color
 
     def paint(self, text: str, color: Optional[str]) -> str:
-        """Colour a fragment of text if colours are enabled."""
-        return colors.colorize(text, color, self._use_color)
+        """Colour a fragment of text if colours are enabled.
+
+        Args:
+            text: the fragment to colour.
+            color: a colour name, or None to leave it alone.
+
+        Returns:
+            The decorated text.
+        """
+        return PALETTE.colorize(text, color, self._use_color)
 
     def emphasise(self, text: str) -> str:
-        """Render a fragment in bold if colours are enabled."""
+        """Render a fragment in bold if colours are enabled.
+
+        Args:
+            text: the fragment to render in bold.
+
+        Returns:
+            The decorated text.
+        """
         if not self._use_color:
             return text
-        return f"{colors.BOLD}{text}{colors.RESET}"
+        return f"{BOLD}{text}{RESET}"
 
     def title(self, text: str) -> str:
-        """Render a section title underlined by dashes."""
+        """Render a section title underlined by dashes.
+
+        Args:
+            text: the title to render.
+
+        Returns:
+            The two lines to print.
+        """
         return f"\n{self.emphasise(text)}\n{'-' * len(text)}"
 
     def error(self, message: str) -> str:
-        """Render an error message."""
+        """Render an error message.
+
+        Args:
+            message: the text to render.
+
+        Returns:
+            The line to print.
+        """
         return self.paint(f"error: {message}", "red")
 
+    def note(self, message: str) -> str:
+        """Render an informative note.
+
+        Used to tell the user that the graphical window is about to
+        open and that the terminal stays busy until it is closed, which
+        would otherwise look like the program hanging.
+
+        Args:
+            message: the text to render.
+
+        Returns:
+            The decorated line.
+        """
+        return self.paint(f"note: {message}", "cyan")
+
     def warning(self, message: str) -> str:
-        """Render a warning message."""
+        """Render a warning message.
+
+        Args:
+            message: the text to render.
+
+        Returns:
+            The line to print.
+        """
         return self.paint(f"warning: {message}", "yellow")
 
     def zone_color(self, zone: Zone) -> str:
@@ -79,9 +130,16 @@ class Renderer:
         The colour written in the map wins, unless this terminal has no
         code for it, in which case the colour of the zone type is used
         instead. A map is never rejected for naming an exotic colour.
+
+        Args:
+            zone: the zone to colour.
+
+        Returns:
+            The name of the colour to use.
         """
-        if zone.color is not None and colors.is_supported(zone.color):
-            return zone.color
+        chosen = zone.color
+        if chosen is not None and PALETTE.knows(chosen):
+            return chosen
         return TYPE_COLORS[zone.zone_type]
 
     def summary(self, path: str, network: Network) -> List[str]:
@@ -104,7 +162,11 @@ class Renderer:
         ]
 
     def legend(self) -> str:
-        """One line explaining the markers of the ASCII map."""
+        """One line explaining the markers of the ASCII map.
+
+        Returns:
+            The line to print.
+        """
         parts = [
             f"{START_MARKER} start", f"{END_MARKER} end",
             f"{TYPE_MARKERS[ZoneType.NORMAL]} normal",
@@ -136,7 +198,7 @@ class Renderer:
             [(" ", None) for _ in range(MAP_WIDTH)] for _ in range(height)
         ]
         for zone in network.zones:
-            label = f"{self._marker(zone)}{zone.name}"
+            label = f"{self._marker(zone)}{zone.name}{self._badge(zone)}"
             column, row = self._project(zone, bounds, height)
             self._write(grid, label, column, row, self.zone_color(zone))
         lines = [self._render_row(row) for row in grid]
@@ -144,14 +206,46 @@ class Renderer:
 
     @staticmethod
     def _bounds(network: Network) -> Tuple[int, int, int, int]:
-        """Bounding box of the map as ``(min x, max x, min y, max y)``."""
+        """Bounding box of the map as ``(min x, max x, min y, max y)``.
+
+        Args:
+            network: the network to measure.
+
+        Returns:
+            The bounding box of its coordinates.
+        """
         xs = [zone.x for zone in network.zones]
         ys = [zone.y for zone in network.zones]
         return min(xs), max(xs), min(ys), max(ys)
 
     @staticmethod
+    def _badge(zone: Zone) -> str:
+        """Capacity suffix written after a zone name on the map view.
+
+        Only zones that hold more than one drone get one, so a plain
+        map stays uncluttered while a bottleneck is visible.
+
+        Args:
+            zone: the zone to describe.
+
+        Returns:
+            A string such as ``(x3)``, or an empty string.
+        """
+        capacity = zone.capacity
+        if capacity is None or capacity <= 1:
+            return ""
+        return f"(x{capacity})"
+
+    @staticmethod
     def _marker(zone: Zone) -> str:
-        """Character standing for a zone on the ASCII map."""
+        """Character standing for a zone on the ASCII map.
+
+        Args:
+            zone: the zone to represent.
+
+        Returns:
+            The single character standing for it.
+        """
         if zone.is_start:
             return START_MARKER
         if zone.is_end:
@@ -192,32 +286,82 @@ class Renderer:
     ) -> None:
         """Write a label on the grid, avoiding what is already there.
 
+        A label too long for the grid is truncated, and a label that
+        finds no free room grows the grid by one line rather than being
+        dropped: a zone missing from the map view would be a silent lie
+        about the network, which is worse than a slightly taller
+        drawing.
+
         Args:
-            grid: the character grid, modified in place.
+            grid: the character grid, modified in place; it may gain
+                lines.
             label: the text to write.
             column: preferred column.
             row: preferred row.
             color: colour of the label.
         """
         width = len(grid[0])
-        column = min(column, width - len(label))
+        if len(label) > width:
+            label = label[:width]
+        column = max(0, min(column, width - len(label)))
         for offset in range(len(grid)):
             for candidate in (row + offset, row - offset):
                 if not 0 <= candidate < len(grid):
                     continue
-                line = grid[candidate]
-                room = all(
-                    line[column + step][0] == " "
-                    for step in range(len(label) + 1)
-                    if column + step < width
-                )
-                if room:
-                    for step, character in enumerate(label):
-                        line[column + step] = (character, color)
+                if Renderer._fits(grid[candidate], label, column):
+                    Renderer._stamp(grid[candidate], label, column, color)
                     return
+        grid.append([(" ", None) for _ in range(width)])
+        Renderer._stamp(grid[-1], label, column, color)
+
+    @staticmethod
+    def _fits(
+        line: List[Tuple[str, Optional[str]]], label: str, column: int
+    ) -> bool:
+        """Tell whether a label can be written at a place, plus a blank.
+
+        Args:
+            line: the row of the grid to test.
+            label: the text to write.
+            column: where the text would start.
+
+        Returns:
+            True when every cell it would need is still empty.
+        """
+        return all(
+            line[column + step][0] == " "
+            for step in range(len(label) + 1)
+            if column + step < len(line)
+        )
+
+    @staticmethod
+    def _stamp(
+        line: List[Tuple[str, Optional[str]]],
+        label: str,
+        column: int,
+        color: str,
+    ) -> None:
+        """Write a label on a row of the grid.
+
+        Args:
+            line: the row to write on, modified in place.
+            label: the text to write.
+            column: where the text starts.
+            color: colour of the label.
+        """
+        for step, character in enumerate(label):
+            if column + step < len(line):
+                line[column + step] = (character, color)
 
     def _render_row(self, row: List[Tuple[str, Optional[str]]]) -> str:
-        """Turn one row of the grid into a printable string."""
+        """Turn one row of the grid into a printable string.
+
+        Args:
+            row: the cells of one row, as character and colour pairs.
+
+        Returns:
+            The printable line.
+        """
         return "".join(
             self.paint(character, color) for character, color in row
         ).rstrip()
@@ -249,6 +393,12 @@ class Renderer:
     def turn(self, turn: Turn, network: Network) -> str:
         """Render one turn of the trace.
 
+        The line holds the moves and nothing else, in the exact format
+        required by the subject: ``D<ID>-<zone>`` entries separated by
+        single spaces, or ``D<ID>-<connection>`` while a drone is still
+        in flight. Only the colours are added, which the subject
+        explicitly allows as the visual representation.
+
         Args:
             turn: the turn to render.
             network: the network, used to colour the zone names.
@@ -265,8 +415,36 @@ class Renderer:
                 zone = network.zone(move.location)
                 location = self.paint(move.location, self.zone_color(zone))
             parts.append(f"{drone}-{location}")
-        number = self.paint(f"turn {turn.number:>3}", "cyan")
-        return f"  {number} | " + " ".join(parts)
+        return " ".join(parts)
+
+    def zone_states(self, states: Dict[str, int], network: Network) -> str:
+        """Render the occupancy of every busy zone at the end of a turn.
+
+        This is the "zone states" half of the visual representation the
+        subject asks for: which zone holds how many drones, out of how
+        many it can hold. A zone shown in red is full.
+
+        Args:
+            states: number of drones per zone at the end of the turn.
+            network: the network, used for the colours and capacities.
+
+        Returns:
+            The line to print, empty when no zone is occupied.
+        """
+        parts = []
+        for name in sorted(states):
+            count = states[name]
+            if count <= 0:
+                continue
+            zone = network.zone(name)
+            capacity = zone.capacity
+            limit = "*" if capacity is None else str(capacity)
+            full = capacity is not None and count >= capacity
+            text = f"{name} {count}/{limit}"
+            parts.append(self.paint(text, "red" if full else "grey"))
+        if not parts:
+            return ""
+        return "        " + "  ".join(parts)
 
     def trace(
         self, result: SimulationResult, network: Network
@@ -285,6 +463,20 @@ class Renderer:
             lines.append(self.turn(turn, network))
         return lines
 
+    @staticmethod
+    def _limit(metrics: Metrics, name: str) -> str:
+        """Capacity of a zone, ``*`` when it has none.
+
+        Args:
+            metrics: the metrics holding the network.
+            name: name of the zone.
+
+        Returns:
+            The capacity as text.
+        """
+        capacity = metrics.network.zone(name).capacity
+        return "*" if capacity is None else str(capacity)
+
     def report(self, metrics: Metrics) -> List[str]:
         """Render the closing statistics.
 
@@ -302,14 +494,22 @@ class Renderer:
         busiest = ", ".join(
             f"{name} ({visits})" for name, visits in metrics.busiest_zones()
         )
+        crowded = ", ".join(
+            f"{name} {count}/{self._limit(metrics, name)}"
+            for name, count in list(metrics.peak_occupancy().items())[:3]
+        )
         return [
             self.title("Report"),
             f"  turns played   : {self.emphasise(str(metrics.total_turns))}"
             f"  ({check})",
-            f"  moves          : {metrics.total_moves}",
+            f"  moves          : {metrics.total_moves}"
+            f"  ({metrics.moves_per_turn:.2f} drone(s) moved per turn)",
+            f"  turns per drone: {metrics.turns_per_drone:.2f} on average",
+            f"  total path cost: {metrics.total_path_cost} turn(s) "
+            f"of flight, {metrics.idle_turns} lost waiting",
             f"  routes used    : {metrics.nb_routes}",
             f"  single route   : {metrics.single_route_turns} turn(s) "
             f"-> speedup x{metrics.speedup:.2f}",
-            f"  waiting turns  : {metrics.idle_turns}",
             f"  busiest zones  : {busiest or 'none'}",
+            f"  peak occupancy : {crowded or 'none'}",
         ]

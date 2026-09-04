@@ -1,0 +1,16 @@
+# Fly-in :: restricted_1
+# Two restricted zones in a row. Each entry costs 2 turns, so a lone
+# drone needs 2 + 2 + 1 = 5 turns, yet the route still swallows one
+# drone per turn.
+
+nb_drones: 4
+
+start_hub: field 0 0
+end_hub: shelter 4 0
+
+hub: storm1 1 0 [zone=restricted color=orange]
+hub: storm2 2 0 [zone=restricted color=orange]
+
+connection: field-storm1
+connection: storm1-storm2
+connection: storm2-shelter

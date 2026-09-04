@@ -99,29 +99,54 @@ class Mission:
         return self._metrics
 
 
-def find_maps(directory: str) -> List[str]:
-    """List the map files of a directory tree, sorted by path.
+class MapLibrary:
+    """The maps available on disk, offered by the graphical browser."""
 
-    The ``invalid`` directory is skipped: it holds the deliberately
-    broken maps used to test the error messages, which have no reason
-    to appear in a map browser.
+    def __init__(self, directory: str) -> None:
+        """Scan a directory tree for map files.
 
-    Args:
-        directory: the directory to scan.
+        Args:
+            directory: the root directory to scan.
+        """
+        self._directory = directory
+        self._paths = self._scan(directory)
 
-    Returns:
-        The paths of the map files it holds.
-    """
-    if not os.path.isdir(directory):
-        return []
-    found: List[str] = []
-    for root, folders, names in os.walk(directory):
-        folders[:] = [
-            folder for folder in folders if folder != EXCLUDED_DIRECTORY
-        ]
-        found.extend(
-            os.path.join(root, name)
-            for name in names
-            if name.endswith(MAP_SUFFIXES)
-        )
-    return sorted(found)
+    @property
+    def directory(self) -> str:
+        """The directory that was scanned."""
+        return self._directory
+
+    @property
+    def paths(self) -> List[str]:
+        """Paths of the map files found, sorted."""
+        return list(self._paths)
+
+    @staticmethod
+    def _scan(directory: str) -> List[str]:
+        """List the map files of a directory tree, sorted by path.
+
+        The ``invalid`` directory is skipped: it holds the deliberately
+        broken maps used to test the error messages, which have no
+        reason to appear in a map browser.
+
+        Args:
+            directory: the directory to scan.
+
+        Returns:
+            The paths of the map files it holds.
+        """
+        if not os.path.isdir(directory):
+            return []
+        found: List[str] = []
+        for root, folders, names in os.walk(directory):
+            folders[:] = [
+                folder
+                for folder in folders
+                if folder != EXCLUDED_DIRECTORY
+            ]
+            found.extend(
+                os.path.join(root, name)
+                for name in names
+                if name.endswith(MAP_SUFFIXES)
+            )
+        return sorted(found)

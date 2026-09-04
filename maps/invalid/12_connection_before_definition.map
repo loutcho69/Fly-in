@@ -1,0 +1,6 @@
+# VII.4: a zone must be defined before it is connected
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 3 0
+connection: s-late
+hub: late 1 0

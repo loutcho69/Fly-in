@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by \<login1\>.*
+*This project has been created as part of the 42 curriculum by LOGIN.*
 
 # Fly-in
 
@@ -29,6 +29,7 @@ make install                                  # flake8 and mypy, in .venv
 make run                                      # graphical viewer + log
 make run MAP=maps/hard/02_capacity_hell.txt   # opens on that map
 make log                                      # terminal output only
+make states                                   # log plus zone occupancy
 make test                                     # replay + fuzz the solver
 make lint                                     # flake8 + mypy
 make lint-strict                              # flake8 + mypy --strict
@@ -49,7 +50,7 @@ environment out of the reach of `flake8 .` and `mypy .`.
 Direct invocation:
 
 ```
-python3 main.py MAP [--gui] [--quiet] [--no-map] [--no-color]
+python3 main.py MAP [--gui] [--quiet] [--zones] [--no-map] [--no-color]
                    [--delay SECONDS]
 ```
 
@@ -58,6 +59,7 @@ python3 main.py MAP [--gui] [--quiet] [--no-map] [--no-color]
 | `--gui` | open the graphical viewer once the log is printed |
 
 | `--quiet` | print only the flight log, in the exact format of the subject |
+| `--zones` | show the state of every zone after each turn |
 | `--no-map` | skip the ASCII view of the network |
 | `--no-color` | plain text output |
 | `--delay S` | pause between two turns, to watch the fleet move |
@@ -129,11 +131,13 @@ Flight plan
 Report
 ------
   turns played   : 6  (matches the prediction)
-  moves          : 22
+  moves          : 22  (3.67 drone(s) moved per turn)
+  turns per drone: 5.20 on average
+  total path cost: 22 turn(s) of flight, 4 lost waiting
   routes used    : 2
   single route   : 8 turn(s) -> speedup x1.33
-  waiting turns  : 4
   busiest zones  : goal (5), merge_point (5), fast_junction (3)
+  peak occupancy : goal 2/*, merge_point 2/3, fast_junction 1/2
 ```
 
 ## Map format
@@ -145,8 +149,11 @@ Blank lines are ignored and everything after a `#` is a comment.
   `hub:`, each written `<name> <x> <y> [metadata]`.
 * `connection: <name>-<name> [metadata]` links two already declared
   zones. The same pair may not be declared twice in either order.
-* Zone names may hold any character except spaces, dashes and the
-  symbols that delimit metadata (`[`, `]`, `=`, `,`, `#`).
+* Zone names may hold any character except spaces and dashes, exactly as
+  the subject states. Brackets, colons and hashes are accepted: a `#`
+  only opens a comment at the start of a line or after a blank, and a
+  metadata block has to close at the end of the line, so the grammar
+  stays unambiguous.
 * Coordinates are integers, used by the display only.
 
 | Key | Where | Values | Default |
@@ -258,17 +265,38 @@ which is what makes the program ignore an extra slow route when the
 fleet is small. The router also fixes *when* each drone takes off, so
 its output is a schedule, not merely an allocation.
 
+**Known limitation.** A minimum cost flow minimises the *sum* of the
+lane durations, while the mission time depends on the *longest* lane, so
+in theory a route set of equal total cost but better balance could be
+missed. Evaluating every width from 1 to the maximum flow removes the
+common cases, since a single lane is always the true shortest route.
+The point was checked rather than assumed: on 86 small graphs the
+optimum was computed by exhaustively enumerating every set of
+vertex-disjoint paths, and the router matched it every time.
+
 **Caching.** Routes are computed once, before the simulation starts, and
 never recomputed: the schedule is fixed and each turn only reads it.
 Memory is linear in the size of the graph plus the number of drones.
 
+**Large fleets.** The fleet is kept in three groups: waiting in a lane
+queue, in the air, delivered. A turn only touches the head of each lane
+queue and the drones currently flying, so its cost is the number of
+drones in the air, not the size of the fleet. A hundred thousand drones
+queueing behind a single corridor are simulated in about 3 seconds,
+against 18 seconds for ten thousand before that change.
+
 **5. Simulation.** The engine plays the schedule and enforces the rules
-again. Every drone that has left the start hub advances on every turn,
-because the subject forbids a drone to wait on a connection while
-heading for a `restricted` zone. Only drones still standing on the start
-hub, which has no capacity limit, can be delayed. At the end of each
-turn every zone and every connection is checked against its capacity, so
-an infeasible plan is rejected instead of printed.
+again. Drones already on their way are handled from the closest to the
+end hub to the furthest, which is what makes "a drone moving out frees
+the zone for the same turn" work without a two phase update. A drone in
+transit towards a `restricted` zone always lands, because the subject
+forbids it to wait on a connection; any other drone stays where it is
+when the next zone is full or the connection saturated, which is the
+strategic waiting the subject asks for. On a plan built from the flow
+that never happens, but the engine degrades instead of failing if it
+ever did. At the end of each turn every zone and every connection is
+checked against its capacity, so an infeasible plan would be rejected
+rather than printed.
 
 ## Visual representation
 
@@ -277,27 +305,43 @@ terminal output, and a graphical interface.
 
 ### Terminal
 
-Four parts.
+Five parts.
 
 * **A map view.** The zones are drawn on a character grid at their real
   coordinates, rescaled to the terminal, each with a marker for its role
-  (`A` start, `Z` end, `*` priority, `~` restricted, `x` blocked) and
-  its colour. Labels that would collide are pushed to a nearby free line
-  so none is ever overwritten. Seeing the topology before the log is
-  what makes the flight plan readable at a glance.
+  (`A` start, `Z` end, `*` priority, `~` restricted, `x` blocked), its
+  capacity when it holds more than one drone (`(x3)`), and its colour.
+  Labels that would collide are pushed to a nearby free line so none is
+  ever overwritten. Seeing the topology before the log is what makes the
+  flight plan readable at a glance.
 * **A flight plan**, listing each route with its length, its duration
   and the number of drones it carries, so a reader can predict the log
   before reading it.
-* **A colored flight log.** Every zone name is printed in the colour
-  given in the map, or in the colour of its type when the map gives
-  none, so a `restricted` detour or a `priority` lane stands out
-  immediately. Drones in transit are dimmed and show a connection name
-  instead of a zone name, which makes two turn movements obvious.
-  `--delay` replays the log one turn at a time, turning the trace into
-  an animation.
-* **A report** with the secondary metrics the subject mentions: number
-  of moves, routes used, waiting turns, busiest zones, and the speedup
-  against the naive single-route solution.
+* **A colored flight log.** Each line holds the moves of one turn and
+  nothing else, in the exact format required by the subject; the only
+  addition is colour, which the subject explicitly allows. Every zone
+  name is printed in the colour given in the map, or in the colour of
+  its type when the map gives none, so a `restricted` detour or a
+  `priority` lane stands out immediately. Drones in transit are dimmed
+  and show a connection name instead of a zone name, which makes two
+  turn movements obvious. `--delay` replays the log one turn at a time,
+  turning the trace into an animation.
+* **Zone states**, with `--zones` or `make states`: after each turn, the
+  occupancy of every busy zone against its capacity, a full zone being
+  shown in red.
+
+  ```
+  D1-merge_point D2-slow_path2 D3-fast_path D4-slow_path1 D5-fast_junction
+          fast_junction 1/2  fast_path 1/1  merge_point 1/3  slow_path1 1/1
+  ```
+
+  It is opt-in so that the default log keeps the exact shape the subject
+  defines, and it answers the "why is this drone waiting" question
+  immediately.
+* **A report** with the three secondary metrics the subject suggests —
+  drones moved per turn, average turns per drone, total path cost — plus
+  the routes used, the busiest zones, the peak occupancy of each against
+  its capacity, and the speedup against the naive single-route solution.
 
 Colours are disabled automatically when the output is redirected, and by
 `--no-color` or the `NO_COLOR` environment variable, so a piped log
@@ -306,45 +350,45 @@ and nothing else.
 
 ### Graphical viewer
 
-`--gui` opens a window that replays the mission on the real topology,
-with **a sidebar listing every map of `maps/`**: clicking one solves it
-and loads it immediately, so a reviewer can walk through the easy,
-medium, hard and challenger maps without ever touching the command
-line. A map that cannot be solved is reported in the status line and the
-previous one stays on screen, so a misclick never closes the window.
-Zones are discs placed at their map coordinates and painted with the
-colour the map gives them, or with the colour of their type when it
-gives none; the two hubs are larger and outlined, and a label recalls
-the type and the capacity (`~` restricted, `*` priority, `x` blocked,
-`xN` capacity). Labels of neighbouring zones alternate between three
-levels so that a dense map stays readable.
+`--gui` opens a window built like an arcade cabinet, with three
+screens.
 
-Drones are drawn as small quadcopters — a body carrying its number,
-four arms and four rotors whose blades keep spinning — and they **glide
-from zone to zone** instead of jumping: the window refreshes every 40 ms
-and each drone is drawn between where it stood at the start of the turn
-and where it will stand at the end of it, on a smoothed trajectory.
-Watching *which* drone moves and *where* it goes needs no effort, and a
-drone that has to wait is obvious because it is the one standing still.
+**Title.** The name in neon, a one-line rule of the game, and a
+blinking `PRESS START`. Enter, space or the button move on; Escape
+quits.
 
-A group sharing a zone is laid out on concentric rings around it, so
-nothing is hidden even on the start hub of the challenger map where
-twenty-five drones wait together. A drone crossing towards a
-`restricted` zone drifts to the middle of the connection during the
-first turn and onto the zone during the second, while the connection
-lights up: two turn movements become visible rather than merely
-readable.
+**Level select.** Every map of `maps/` laid out as a numbered tile, one
+row per directory holding them — easy, medium, hard, challenger, custom
+first, then any other folder in alphabetical order, each row in its own
+colour. Dropping a folder of evaluation maps into `maps/` is therefore
+enough for it to appear as its own row, named after the folder;
+sub-directories are scanned too, and only `maps/invalid/` is skipped.
+Each tile gives the size of the fleet and of the network, read from the
+file without solving it so the screen opens instantly. The arrow keys
+walk the tiles, left and right within a row and up and down between
+families, Enter launches, and the board scrolls to keep the selection
+in view, so no level is ever out of reach however many are added. A map
+that cannot be solved is reported under the board and the screen stays
+open, so a misclick never loses anything.
 
-The window has Play, Step and Reset buttons, a speed slider and the
-shortcuts space, right arrow and escape, plus a header giving the map
-name, the fleet size, the number of lanes and the total number of turns,
-and a status line giving the current turn and how many drones are
-already delivered. Stepping through a bottleneck
+**Mission.** The network drawn at the real coordinates of its zones,
+with the fleet flying over it.
+
+The transport bar holds Reset, a step-backwards button, Play/Pause and
+a step-forwards button, plus a speed slider. **The left and right arrow
+keys move one turn backwards and forwards**, and a rewound turn is
+animated like any other, so the drones glide back to where they came
+from instead of jumping: watching a bottleneck build up and then undoing
+it, one turn at a time, is the fastest way to understand why a map costs
+what it costs. Space plays and pauses, Escape steps back one screen — mission to level
+select, level select to title, title to quit. The header gives the map name, the fleet size,
+the number of lanes and the total number of turns; the status line gives
+the current turn and how many drones are already delivered. Stepping through a bottleneck
 one turn at a time is the fastest way to see *why* a map costs what it
 costs, which is exactly what the terminal log cannot show.
 
 Only the drones are redrawn on each refresh; the network is rebuilt
-once per turn. On the heaviest map, 62 zones and 25 drones, a refresh
+once per turn. On the heaviest map, 54 zones and 25 drones, a refresh
 costs about 3 ms out of a 40 ms budget.
 
 The animation itself is computed in `playback.py`, which imports no
@@ -367,11 +411,19 @@ the geometry to be tested on a machine with no display.
 | hard/03_ultimate_challenge | 15 | <= 45 | **26** | 26 |
 | challenger/01_the_impossible_dream | 25 | 45 (record) | **43** | 43 |
 
-The lower bound is `d_min + ceil(n / k) - 1`, where `d_min` is the
-duration of the fastest route and `k` is the maximum number of lanes the
-network can host at once, that is the value of the maximum flow. No
-schedule can beat it, and the program reaches it on every provided map,
-so these results are not merely good, they are optimal.
+The lower bound in the table is `d_min + ceil(n / k) - 1`, where
+`d_min` is the duration of the fastest route and `k` is the maximum
+number of lanes the network can host at once, that is the value of the
+maximum flow. No schedule can beat it, and the program reaches it on
+every provided map, so these results are not merely good, they are
+optimal there.
+
+That bound is only *tight* when every lane has the same length. On a map
+whose lanes differ — say three lanes of 2, 3 and 4 turns for 12 drones —
+the formula gives 5 while the real optimum is 6, because the two slow
+lanes cannot deliver as much as the fast one. The true optimum is what
+the binary search of `router.py` computes; the formula above is a quick
+sanity check, not the objective.
 
 Several hard maps are solved with a single lane. That is not a weakness
 of the solver: they chain zones declared `max_drones=1`, so their
@@ -390,8 +442,13 @@ if and only if the destination is `restricted`, that a drone in flight
 lands on the very next turn, that no zone and no connection is ever over
 capacity, and that the whole fleet reaches the end hub.
 
-It checks that every map of `maps/invalid/` **is** rejected: a parser
-that accepts everything is as wrong as one that accepts nothing.
+It checks that every map of `maps/invalid/` **is** rejected. There is one
+file per rule of the parser constraints, named after it — a missing
+`nb_drones`, a second `start_hub`, a dash inside a zone name, a
+connection to a zone defined later, `a-b` declared twice as `b-a`, an
+unterminated metadata block, an unknown zone type, a `max_drones` of
+zero, and so on. A parser that accepts everything is as wrong as one
+that accepts nothing, so each rule has its own test.
 
 It then **fuzzes** hundreds of random maps mixing blocked, restricted
 and priority zones with random capacities, and verifies that the

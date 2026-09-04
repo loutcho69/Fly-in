@@ -1,0 +1,15 @@
+# Fly-in :: easy_3
+# Every drone queues in a single corridor of capacity 1:
+# the expected duration is 3 + 5 - 1 = 7 turns.
+
+nb_drones: 5
+
+start_hub: depot 0 0
+end_hub: rooftop 4 0
+
+hub: corridorA 1 0
+hub: corridorB 2 0
+
+connection: depot-corridorA
+connection: corridorA-corridorB
+connection: corridorB-rooftop

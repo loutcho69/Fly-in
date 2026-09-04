@@ -140,7 +140,14 @@ class Network:
         return link
 
     def has_zone(self, name: str) -> bool:
-        """Tell whether a zone with this name exists."""
+        """Tell whether a zone with this name exists.
+
+        Args:
+            name: the name to look for.
+
+        Returns:
+            True when the zone exists.
+        """
         return name in self._zones
 
     def zone(self, name: str) -> Zone:
@@ -148,6 +155,12 @@ class Network:
 
         Raises:
             ValidationError: if no such zone exists.
+
+        Args:
+            name: name of the zone.
+
+        Returns:
+            The matching zone.
         """
         try:
             return self._zones[name]
@@ -155,7 +168,15 @@ class Network:
             raise ValidationError(f"unknown zone {name!r}") from None
 
     def link_between(self, first: str, second: str) -> Optional[Link]:
-        """Return the link joining two zones, or None if there is none."""
+        """Return the link joining two zones, or None if there is none.
+
+        Args:
+            first: name of one endpoint.
+            second: name of the other endpoint.
+
+        Returns:
+            The link, or None when the two are not connected.
+        """
         low, high = sorted((first, second))
         return self._links.get((low, high))
 

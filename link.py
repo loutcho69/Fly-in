@@ -104,7 +104,14 @@ class Link:
         return usage + incoming <= self._capacity
 
     def __eq__(self, other: object) -> bool:
-        """Two links are equal when they join the same pair of zones."""
+        """Two links are equal when they join the same pair of zones.
+
+        Args:
+            other: the object to compare with.
+
+        Returns:
+            True when both are links joining the same pair.
+        """
         if not isinstance(other, Link):
             return NotImplemented
         return self._key == other.key

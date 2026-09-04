@@ -1,0 +1,7 @@
+# blocked zones make the map unsolvable
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: wall 1 0 [zone=blocked]
+connection: s-wall
+connection: wall-e

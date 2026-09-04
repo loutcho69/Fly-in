@@ -1,0 +1,7 @@
+# VII.4: metadata must be syntactically valid: nothing may follow
+# the closing bracket of the block
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: a 1 0 [color=red] oops
+connection: s-a

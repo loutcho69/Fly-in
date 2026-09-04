@@ -1,0 +1,6 @@
+# VII.4: there must be exactly one end_hub
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+end_hub: e2 3 0
+connection: s-e

@@ -1,0 +1,17 @@
+# Edge cases that MUST be accepted (subject VII.4):
+#  - max_drones on the two hubs is ignored, not an error
+#  - metadata tags may appear in any order
+#  - zone names may hold any character but spaces, dashes and delimiters
+#  - a comment may follow an instruction on the same line
+
+nb_drones: 6
+
+start_hub: base.01 0 0 [max_drones=1 color=green]     # ignored here
+end_hub: goal$ 4 0 [color=red max_drones=1]           # ignored here too
+
+hub: w1 1 0 [color=blue zone=priority max_drones=2]
+hub: w2 2 0 [max_drones=2 zone=priority color=blue]
+
+connection: base.01-w1 [max_link_capacity=2]
+connection: w1-w2 [max_link_capacity=2]
+connection: w2-goal$ [max_link_capacity=2]

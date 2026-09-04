@@ -17,7 +17,9 @@ them costs nothing since the start hub has no capacity limit.
 way advances during the same pass, so a zone released on turn ``t`` is
 free on turn ``t`` for the drone entering it.
 
-**One departure per lane per turn.** That is the throughput the duration
+**One departure per lane per turn.** The fleet is therefore kept as one
+queue per lane, and a turn only touches the head of each queue and the
+drones currently in the air. That is the throughput the duration
 formula of ``router.py`` assumes, and the flow computed in ``flow.py``
 proves those lanes fit in the network at once. The engine nevertheless
 verifies every capacity at the end of every turn: a schedule breaking a
@@ -26,7 +28,8 @@ rule is rejected, never printed.
 
 from __future__ import annotations
 
-from typing import Dict, List, Sequence, Tuple
+from collections import deque
+from typing import Deque, Dict, List, Optional, Sequence, Tuple
 
 from drone import Drone
 from errors import SimulationError
@@ -72,15 +75,23 @@ class Move:
 class Turn:
     """Every move performed during a single turn."""
 
-    def __init__(self, number: int, moves: Sequence[Move]) -> None:
+    def __init__(
+        self,
+        number: int,
+        moves: Sequence[Move],
+        states: Optional[Dict[str, int]] = None,
+    ) -> None:
         """Record a turn.
 
         Args:
             number: 1-based turn number.
             moves: the moves performed, in drone order.
+            states: number of drones standing in each zone at the end of
+                the turn, used by the displays to show the zone states.
         """
         self._number = number
         self._moves: Tuple[Move, ...] = tuple(moves)
+        self._states: Dict[str, int] = dict(states or {})
 
     @property
     def number(self) -> int:
@@ -91,6 +102,11 @@ class Turn:
     def moves(self) -> Tuple[Move, ...]:
         """The moves performed during the turn."""
         return self._moves
+
+    @property
+    def states(self) -> Dict[str, int]:
+        """Drones standing in each zone at the end of the turn."""
+        return dict(self._states)
 
     def __len__(self) -> int:
         """Number of moves performed during the turn."""
@@ -164,18 +180,28 @@ class Simulator:
             )
             for number in range(network.nb_drones)
         )
+        self._queues: List[Deque[Drone]] = [
+            deque() for _ in plan.routes
+        ]
+        for drone in self._drones:
+            self._queues[drone.lane].append(drone)
+        self._airborne: List[Drone] = []
+        self._delivered = 0
 
     @property
     def drones(self) -> Tuple[Drone, ...]:
         """The fleet, in identifier order."""
         return self._drones
 
-    def run(self, turn_limit: int = 100_000) -> SimulationResult:
+    def run(self, turn_limit: Optional[int] = None) -> SimulationResult:
         """Play the whole mission.
 
         Args:
-            turn_limit: safety net against an endless loop; a correct
-                plan never reaches it.
+            turn_limit: safety net against an endless loop. It defaults
+                to twice the duration the router predicted, so it scales
+                with the fleet instead of capping it: a hundred thousand
+                drones queueing behind one corridor legitimately need a
+                hundred thousand turns.
 
         Returns:
             The trace and the statistics of the mission.
@@ -184,13 +210,14 @@ class Simulator:
             SimulationError: if a turn moves nobody while drones are
                 still on their way, or if a capacity is exceeded.
         """
+        limit = turn_limit or self._safety_limit()
         turns: List[Turn] = []
         number = 0
         while not self._everyone_arrived():
             number += 1
-            if number > turn_limit:
+            if number > limit:
                 raise SimulationError(
-                    f"the simulation exceeded {turn_limit} turns and was "
+                    f"the simulation exceeded {limit} turns and was "
                     "stopped"
                 )
             turn = self._play(number)
@@ -202,14 +229,33 @@ class Simulator:
             turns.append(turn)
         return SimulationResult(turns, self._drones)
 
+    def _safety_limit(self) -> int:
+        """Largest number of turns the run is allowed to take.
+
+        Twice the prediction plus a margin: comfortably above any
+        correct run, and still small enough to catch a real deadlock
+        quickly.
+
+        Returns:
+            The largest number of turns allowed.
+        """
+        return 2 * self._plan.estimated_turns + 100
+
     def _play(self, number: int) -> Turn:
         """Play one turn.
 
-        Two passes. Every drone already on its way advances, because the
-        rules forbid it to stop in transit. Then the drones still
-        waiting on the start hub take off, if their scheduled turn has
-        come and if the capacities allow it; they are the only ones that
-        can be delayed.
+        Two passes. First the drones already on their way, handled from
+        the closest to the end hub to the furthest so that a zone
+        released during the turn is free for the drone behind. Then the
+        drones still standing on the start hub, which take off when
+        their scheduled turn has come.
+
+        A drone in transit towards a ``restricted`` zone always lands:
+        the subject forbids it to wait on the connection. Every other
+        drone may stay where it is when the next zone is full or the
+        connection saturated, which is the strategic waiting the subject
+        asks for. On a plan built from the flow this never happens, but
+        the engine degrades instead of failing if it ever did.
 
         Args:
             number: 1-based number of the turn.
@@ -224,18 +270,91 @@ class Simulator:
         occupancy: Dict[str, int] = {}
         usage: Dict[Tuple[str, str], int] = {}
         moves: List[Move] = []
-        for drone in self._drones:
-            if drone.has_arrived or not drone.has_started:
+        for drone in self._flight_order():
+            if drone.is_flying or self._may_advance(drone, occupancy, usage):
+                moves.append(self._advance(drone, number, occupancy, usage))
+            else:
+                self._book(occupancy, drone.zone.name)
+        for queue in self._queues:
+            if not queue:
                 continue
-            moves.append(self._advance(drone, number, occupancy, usage))
-        for drone in self._drones:
-            if drone.has_started or drone.has_arrived:
-                continue
+            drone = queue[0]
             if self._may_take_off(drone, number, occupancy, usage):
                 moves.append(self._advance(drone, number, occupancy, usage))
+                self._airborne.append(queue.popleft())
+        self._collect_deliveries()
         moves.sort(key=lambda move: int(move.drone[1:]))
         self._verify(number, occupancy, usage)
-        return Turn(number, moves)
+        return Turn(number, moves, self._states(occupancy))
+
+    def _states(self, occupancy: Dict[str, int]) -> Dict[str, int]:
+        """Complete the occupancy with the two hubs, for the display.
+
+        ``occupancy`` only holds what the capacity rules act upon, and
+        the hubs have no limit, so neither the drones still waiting to
+        take off nor the ones already delivered appear in it. A reader
+        of the zone states wants to see them: the start hub tells how
+        many drones are left to send, the end hub how many are home. The
+        two counters are added here rather than in ``occupancy`` so that
+        the capacity checks and the statistics stay untouched.
+
+        Args:
+            occupancy: drones per zone at the end of the turn.
+
+        Returns:
+            The same counts plus the two hubs.
+        """
+        states = dict(occupancy)
+        waiting = sum(len(queue) for queue in self._queues)
+        states[self._network.start.name] = waiting
+        states[self._network.end.name] = self._delivered
+        return states
+
+    def _flight_order(self) -> List[Drone]:
+        """Drones already on their way, closest to the end hub first.
+
+        Handling the drone ahead first is what makes "a drone moving out
+        frees the zone for the same turn" work without a two phase
+        update: the follower finds the zone already released.
+
+        Returns:
+            The drones in the air, in the order they must be handled.
+        """
+        return sorted(
+            self._airborne,
+            key=lambda drone: (drone.remaining_moves, drone.identifier),
+        )
+
+    @staticmethod
+    def _may_advance(
+        drone: Drone,
+        occupancy: Dict[str, int],
+        usage: Dict[Tuple[str, str], int],
+    ) -> bool:
+        """Tell whether a drone standing in a zone may move on.
+
+        The destination is only checked for a one turn move: a two turn
+        move lands on the *next* turn, when the drone ahead will have
+        moved on, so testing the zone now would hold the fleet back for
+        nothing.
+
+        Args:
+            drone: a drone standing in a zone, not in flight.
+            occupancy: drones per zone at the end of the turn.
+            usage: drones per connection during the turn.
+
+        Returns:
+            True if the move breaks no capacity rule.
+        """
+        target = drone.destination
+        link = drone.next_link
+        if target is None or link is None:
+            return False
+        if not link.has_room_for(usage.get(link.key, 0)):
+            return False
+        if drone.next_cost > 1:
+            return True
+        return target.has_room_for(occupancy.get(target.name, 0))
 
     def _advance(
         self,
@@ -276,11 +395,17 @@ class Simulator:
 
     @staticmethod
     def _book(occupancy: Dict[str, int], name: str) -> None:
-        """Record that one more drone stands in a zone."""
+        """Record that one more drone stands in a zone.
+
+        Args:
+            occupancy: drones per zone, updated in place.
+            name: name of the zone being entered.
+        """
         occupancy[name] = occupancy.get(name, 0) + 1
 
-    @staticmethod
+    @classmethod
     def _may_take_off(
+        cls,
         drone: Drone,
         number: int,
         occupancy: Dict[str, int],
@@ -305,15 +430,7 @@ class Simulator:
         """
         if number < drone.departure_turn:
             return False
-        target = drone.destination
-        link = drone.next_link
-        if target is None or link is None:
-            return False
-        if not link.has_room_for(usage.get(link.key, 0)):
-            return False
-        if drone.next_cost > 1:
-            return True
-        return target.has_room_for(occupancy.get(target.name, 0))
+        return cls._may_advance(drone, occupancy, usage)
 
     def _verify(
         self,
@@ -346,10 +463,35 @@ class Simulator:
                     f"{count} drone(s) for a capacity of {link.capacity}"
                 )
 
+    def _collect_deliveries(self) -> None:
+        """Take the drones that just landed out of the active list.
+
+        Keeping the fleet in three groups — waiting in a lane queue, in
+        the air, delivered — is what makes a turn cost the number of
+        drones actually flying instead of the size of the whole fleet.
+        Ten thousand drones queueing behind one corridor then cost the
+        same per turn as ten.
+        """
+        arrived = [drone for drone in self._airborne if drone.has_arrived]
+        if not arrived:
+            return
+        self._delivered += len(arrived)
+        self._airborne = [
+            drone for drone in self._airborne if not drone.has_arrived
+        ]
+
     def _everyone_arrived(self) -> bool:
-        """True once every drone reached the end hub."""
-        return all(drone.has_arrived for drone in self._drones)
+        """True once every drone reached the end hub.
+
+        Returns:
+            True when the whole fleet is delivered.
+        """
+        return self._delivered == len(self._drones)
 
     def _pending(self) -> int:
-        """Number of drones still on their way."""
-        return sum(1 for drone in self._drones if not drone.has_arrived)
+        """Number of drones still on their way.
+
+        Returns:
+            The number of drones still on their way.
+        """
+        return len(self._drones) - self._delivered

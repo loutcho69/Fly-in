@@ -20,57 +20,67 @@ Point = Tuple[float, float]
 PER_RING = 8
 
 
-def spread(anchor: Point, rank: int, total: int, orbit: float) -> Point:
-    """Place the ``rank``-th of ``total`` drones around a point.
+class Geometry:
+    """Where a drone is drawn, and where it is on its way to.
 
-    A lone drone sits on the point itself. A group is laid out on
-    concentric rings of at most :data:`PER_RING` drones each, rather
-    than on a single circle: twenty-five drones on one ring would
-    overlap, which is exactly what happens on the start hub of the
-    challenger map before the first take-off.
-
-    Args:
-        anchor: the point to spread around.
-        rank: index of the drone inside its group.
-        total: size of the group.
-        orbit: radius of the first ring, in pixels.
-
-    Returns:
-        The position of that drone.
+    Pure geometry, with no state and no toolkit: the two operations the
+    animation needs, laying a group of drones out around a place and
+    interpolating between two positions.
     """
-    if total <= 1:
-        return anchor
-    ring = rank // PER_RING
-    on_ring = min(PER_RING, total - ring * PER_RING)
-    angle = 2 * math.pi * (rank % PER_RING) / on_ring + ring * 0.4
-    radius = orbit * (1 + 0.55 * ring)
-    return (
-        anchor[0] + radius * math.cos(angle),
-        anchor[1] + radius * math.sin(angle),
-    )
 
+    @staticmethod
+    def spread(anchor: Point, rank: int, total: int, orbit: float) -> Point:
+        """Place the ``rank``-th of ``total`` drones around a point.
 
-def blend(start: Point, end: Point, ratio: float) -> Point:
-    """Interpolate between two points.
+        A lone drone sits on the point itself. A group is laid out on
+        concentric rings of at most :data:`PER_RING` drones each, rather
+        than on a single circle: twenty-five drones on one ring would
+        overlap, which is exactly what happens on the start hub of the
+        challenger map before the first take-off.
 
-    This is what turns the trace into a smooth animation: instead of
-    teleporting from one zone to the next when the turn changes, a drone
-    is drawn somewhere along the way, at the fraction ``ratio`` of its
-    journey.
+        Args:
+            anchor: the point to spread around.
+            rank: index of the drone inside its group.
+            total: size of the group.
+            orbit: radius of the first ring, in pixels.
 
-    Args:
-        start: position at the beginning of the turn.
-        end: position at the end of the turn.
-        ratio: 0 gives ``start``, 1 gives ``end``.
+        Returns:
+            The position of that drone.
+        """
+        if total <= 1:
+            return anchor
+        ring = rank // PER_RING
+        on_ring = min(PER_RING, total - ring * PER_RING)
+        angle = 2 * math.pi * (rank % PER_RING) / on_ring + ring * 0.4
+        radius = orbit * (1 + 0.55 * ring)
+        return (
+            anchor[0] + radius * math.cos(angle),
+            anchor[1] + radius * math.sin(angle),
+        )
 
-    Returns:
-        The intermediate position.
-    """
-    eased = ratio * ratio * (3 - 2 * ratio)
-    return (
-        start[0] + (end[0] - start[0]) * eased,
-        start[1] + (end[1] - start[1]) * eased,
-    )
+    @staticmethod
+    def blend(start: Point, end: Point, ratio: float) -> Point:
+        """Interpolate between two points.
+
+        This is what turns the trace into a smooth animation: instead of
+        teleporting from one zone to the next when the turn changes, a
+        drone is drawn along the way, at the fraction ``ratio`` of its
+        journey. The ratio is smoothed so the drone eases in and out
+        rather than starting and stopping abruptly.
+
+        Args:
+            start: position at the beginning of the turn.
+            end: position at the end of the turn.
+            ratio: 0 gives ``start``, 1 gives ``end``.
+
+        Returns:
+            The intermediate position.
+        """
+        eased = ratio * ratio * (3 - 2 * ratio)
+        return (
+            start[0] + (end[0] - start[0]) * eased,
+            start[1] + (end[1] - start[1]) * eased,
+        )
 
 
 class Playback:
@@ -211,7 +221,9 @@ class Playback:
                 continue
             names.sort(key=lambda name: int(name[1:]))
             for rank, name in enumerate(names):
-                places[name] = spread(anchor, rank, len(names), orbit)
+                places[name] = Geometry.spread(
+                    anchor, rank, len(names), orbit
+                )
         return places
 
     def delivered(self, index: int) -> int:

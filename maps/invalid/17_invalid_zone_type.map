@@ -1,0 +1,6 @@
+# VII.4: zone types must be one of the four allowed values
+nb_drones: 2
+start_hub: s 0 0
+end_hub: e 2 0
+hub: a 1 0 [zone=lava]
+connection: s-a
