@@ -446,7 +446,11 @@ class Viewer:
             The function bound to the mouse button.
         """
         def pick(_event: "tk.Event[tk.Misc]") -> None:
-            """Select this level and launch it."""
+            """Select this level and launch it.
+
+            Args:
+                _event: the tkinter event, unused.
+            """
             self._cursor = position
             self._highlight()
             self._launch()
@@ -463,7 +467,11 @@ class Viewer:
             The function bound to the pointer entering the tile.
         """
         def hover(_event: "tk.Event[tk.Misc]") -> None:
-            """Move the selection under the pointer."""
+            """Move the selection under the pointer.
+
+            Args:
+                _event: the tkinter event, unused.
+            """
             self._cursor = position
             self._highlight()
 

@@ -27,6 +27,7 @@ from renderer import Renderer
 from simulator import Turn
 
 MAPS_DIRECTORY = "maps"
+MAX_DELAY = 10.0
 EXIT_SUCCESS = 0
 EXIT_FAILURE = 1
 EXIT_INTERRUPTED = 130
@@ -50,8 +51,8 @@ class Application:
         """The renderer used for every message."""
         return self._renderer
 
-    @staticmethod
-    def build_parser() -> argparse.ArgumentParser:
+    @classmethod
+    def build_parser(cls) -> argparse.ArgumentParser:
         """Describe the command line interface.
 
         Returns:
@@ -89,12 +90,46 @@ class Application:
         )
         parser.add_argument(
             "--delay",
-            type=float,
+            type=cls._delay,
             default=0.0,
             metavar="SECONDS",
-            help="pause between two turns, to watch the fleet move",
+            help=(
+                "pause between two turns, to watch the fleet move "
+                f"(0 to {MAX_DELAY:g} seconds)"
+            ),
         )
         return parser
+
+    @staticmethod
+    def _delay(value: str) -> float:
+        """Read and bound the ``--delay`` option.
+
+        A negative pause is meaningless and used to be silently ignored,
+        and a huge one turns the program into what looks like a freeze;
+        both are rejected with a message instead.
+
+        Args:
+            value: the raw text given on the command line.
+
+        Returns:
+            The pause in seconds.
+
+        Raises:
+            argparse.ArgumentTypeError: if the value is not a number
+                between 0 and :data:`MAX_DELAY`.
+        """
+        try:
+            seconds = float(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(
+                f"{value!r} is not a number of seconds"
+            ) from None
+        if not 0.0 <= seconds <= MAX_DELAY:
+            raise argparse.ArgumentTypeError(
+                f"the pause must be between 0 and {MAX_DELAY:g} seconds, "
+                f"got {seconds:g}"
+            )
+        return seconds
 
     def run(self) -> int:
         """Run the whole pipeline on one map.

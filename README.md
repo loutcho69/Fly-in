@@ -62,7 +62,7 @@ python3 main.py MAP [--gui] [--quiet] [--zones] [--no-map] [--no-color]
 | `--zones` | show the state of every zone after each turn |
 | `--no-map` | skip the ASCII view of the network |
 | `--no-color` | plain text output |
-| `--delay S` | pause between two turns, to watch the fleet move |
+| `--delay S` | pause between two turns, from 0 to 10 seconds |
 
 The graphical viewer uses `tkinter`, which belongs to the standard
 library but is packaged separately on some distributions. When it is
@@ -155,6 +155,8 @@ Blank lines are ignored and everything after a `#` is a comment.
   metadata block has to close at the end of the line, so the grammar
   stays unambiguous.
 * Coordinates are integers, used by the display only.
+* The file is read as UTF-8, with or without a byte order mark, and
+  with either Unix or Windows line endings.
 
 | Key | Where | Values | Default |
 | --- | --- | --- | --- |

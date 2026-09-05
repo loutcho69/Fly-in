@@ -21,6 +21,7 @@ adapting the parser to a different spelling means editing one line.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
@@ -88,14 +89,29 @@ class MapParser:
     def _read_lines(self) -> List[str]:
         """Load the file as a list of raw lines.
 
+        The encoding is ``utf-8-sig`` rather than ``utf-8``: an editor
+        on Windows writes a byte order mark at the head of the file,
+        which would otherwise glue itself to the first keyword and get
+        the whole map rejected on its first line.
+
+        Only a regular file is accepted. Reading a named pipe would
+        block until something writes into it, which looks exactly like
+        a frozen program, and reading a directory raises an error the
+        user cannot act on.
+
         Returns:
             The lines of the file, newline characters removed.
 
         Raises:
-            FlyInError: if the file is missing or unreadable.
+            FlyInError: if the path is missing, is not a regular file,
+                or cannot be decoded.
         """
+        if os.path.exists(self._path) and not os.path.isfile(self._path):
+            raise FlyInError(
+                f"{self._path!r} is not a regular file"
+            )
         try:
-            with open(self._path, "r", encoding="utf-8") as stream:
+            with open(self._path, "r", encoding="utf-8-sig") as stream:
                 return stream.read().splitlines()
         except OSError as error:
             raise FlyInError(
