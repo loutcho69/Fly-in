@@ -242,7 +242,11 @@ class Viewer:
         self._play_label = tk.StringVar(value="PLAY")
         self._start_prompt = tk.StringVar(value="")
         self._title_screen = self._build_title()
-        self._select_screen, self._board = self._build_select()
+        (
+            self._select_screen,
+            self._board,
+            self._select_canvas,
+        ) = self._build_select()
         self._fill_board()
         self._mission_screen, self._canvas = self._build_mission()
         self._bind_keys()
@@ -304,12 +308,14 @@ class Viewer:
         ).pack(pady=(0, 24))
         return frame
 
-    def _build_select(self) -> Tuple[tk.Frame, tk.Frame]:
+    def _build_select(self) -> Tuple[tk.Frame, tk.Frame, tk.Canvas]:
         """Build the level select screen and its scrollable board.
 
         Returns:
-            The frame holding the screen, and the inner frame the rows
-            are gridded into.
+            The frame holding the screen, the inner frame the rows are
+            gridded into, and the canvas that scrolls them. All three
+            are returned rather than stored on the way, so that every
+            attribute of the class is created in ``__init__``.
         """
         frame = tk.Frame(self._root, bg=BACKGROUND)
         tk.Label(
@@ -340,12 +346,11 @@ class Viewer:
                 scrollregion=canvas.bbox("all")
             ),
         )
-        self._select_canvas = canvas
         tk.Label(
             frame, textvariable=self._select_status, bg=BACKGROUND,
             fg=ALERT_TEXT, font=(ARCADE, 10),
         ).pack(pady=(10, 18))
-        return frame, board
+        return frame, board, canvas
 
     def _fill_board(self) -> None:
         """Lay the levels out, one row per family, and index them.

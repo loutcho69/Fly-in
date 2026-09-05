@@ -1,9 +1,11 @@
 """Everything the program prints.
 
-Every escape code, every alignment and every wording lives here. No
-other module writes to the terminal, which means the whole simulation
-can be reused by a test, a web front end or a file exporter without
-touching a line of logic.
+Every escape code, every alignment and every wording lives here. The
+module builds strings and returns them; it never writes anything
+itself, and ``main.py`` is the only place that calls ``print``. The
+whole simulation can therefore be reused by a test, a web front end or
+a file exporter without touching a line of logic, and a test can check
+what would be shown without capturing any output.
 """
 
 from __future__ import annotations

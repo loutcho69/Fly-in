@@ -19,7 +19,6 @@ from typing import Dict, FrozenSet, Optional
 
 RESET = "\033[0m"
 BOLD = "\033[1m"
-DIM = "\033[2m"
 
 
 class Palette:

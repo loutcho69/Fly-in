@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by lobroue.*
+*This project has been created as part of the 42 curriculum by LOGIN.*
 
 # Fly-in
 
@@ -59,7 +59,7 @@ python3 main.py MAP [--gui] [--quiet] [--zones] [--no-map] [--no-color]
 | `--gui` | open the graphical viewer once the log is printed |
 
 | `--quiet` | print only the flight log, in the exact format of the subject |
-| `--zones` | show the state of every zone after each turn |
+| `--zones` | show the state of every zone after each turn (ignored with `--quiet`) |
 | `--no-map` | skip the ASCII view of the network |
 | `--no-color` | plain text output |
 | `--delay S` | pause between two turns, from 0 to 10 seconds |
@@ -209,7 +209,9 @@ data.
 
 The graph, the paths and the plan are **immutable**; the drones are the
 only objects carrying a mutable state, and the simulator is the only
-module that changes them. The renderer is the only module that prints.
+module that changes them. The renderer builds every line the program
+shows but never writes one: it returns strings, and `main.py` is the
+only place that calls `print`.
 That separation is what lets the checker replay a whole mission without
 touching the engine.
 
@@ -280,8 +282,15 @@ vertex-disjoint paths, and the router matched it every time.
 never recomputed: the schedule is fixed and each turn only reads it.
 Memory is linear in the size of the graph plus the number of drones.
 
-**Large fleets.** The fleet is kept in three groups: waiting in a lane
-queue, in the air, delivered. A turn only touches the head of each lane
+**Large fleets.** The mission is played one turn at a time and one line
+is printed per turn, so the running time is linear in the number of
+turns, which is itself linear in the number of drones when a single
+lane has to carry them all. That is a floor no implementation can go
+under: a hundred thousand drones queueing behind one corridor need a
+hundred thousand lines of output whatever the algorithm. What can be
+avoided is a cost per turn that grows with the fleet, and it is: the
+fleet is kept in three groups: waiting in a lane queue, in the air,
+delivered. A turn only touches the head of each lane
 queue and the drones currently flying, so its cost is the number of
 drones in the air, not the size of the fleet. A hundred thousand drones
 queueing behind a single corridor are simulated in about 3 seconds,

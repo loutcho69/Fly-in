@@ -15,6 +15,7 @@ stays short enough to read in one go.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from typing import List, Optional, Sequence
@@ -29,6 +30,7 @@ from simulator import Turn
 MAPS_DIRECTORY = "maps"
 MAX_DELAY = 10.0
 EXIT_SUCCESS = 0
+EXIT_BROKEN_PIPE = 141
 EXIT_FAILURE = 1
 EXIT_INTERRUPTED = 130
 
@@ -71,12 +73,18 @@ class Application:
         parser.add_argument(
             "--quiet",
             action="store_true",
-            help="print only the flight log, in the format of the subject",
+            help=(
+                "print only the flight log, in the exact format of the "
+                "subject, with nothing else on any line"
+            ),
         )
         parser.add_argument(
             "--zones",
             action="store_true",
-            help="show the state of every zone after each turn",
+            help=(
+                "show the state of every zone after each turn; has no "
+                "effect with --quiet, which keeps the bare format"
+            ),
         )
         parser.add_argument(
             "--no-map",
@@ -230,7 +238,7 @@ class Application:
         try:
             from viewer import Viewer
         except ImportError:
-            self._warn(
+            self.warn(
                 "the graphical viewer needs tkinter, which is missing "
                 "(macOS: brew install python-tk, "
                 "Debian: sudo apt install python3-tk)"
@@ -242,7 +250,7 @@ class Application:
         try:
             window = Viewer(mission, catalogue)
         except Exception as error:
-            self._warn(f"the viewer could not open a window: {error}")
+            self.warn(f"the viewer could not open a window: {error}")
             return
         print(
             self._renderer.note(
@@ -252,9 +260,9 @@ class Application:
         try:
             window.run()
         except Exception as error:
-            self._warn(f"the viewer stopped: {error}")
+            self.warn(f"the viewer stopped: {error}")
 
-    def _warn(self, message: str) -> None:
+    def warn(self, message: str) -> None:
         """Print a warning on the error stream.
 
         Args:
@@ -270,7 +278,8 @@ class Application:
             argv: command line arguments, defaulting to ``sys.argv``.
 
         Returns:
-            0 on success, 1 on an expected failure, 130 on an interrupt.
+            0 on success, 1 on an expected failure, 130 on an interrupt,
+            141 when the reader of the output went away.
         """
         options = cls.build_parser().parse_args(argv)
         application = cls(options)
@@ -282,8 +291,35 @@ class Application:
             )
             return EXIT_FAILURE
         except KeyboardInterrupt:
-            application._warn("interrupted")
+            application.warn("interrupted")
             return EXIT_INTERRUPTED
+        except BrokenPipeError:
+            return cls._pipe_closed()
+
+    @staticmethod
+    def _pipe_closed() -> int:
+        """Leave quietly when the reader of the output went away.
+
+        ``main.py map | head -5`` closes the pipe as soon as it has its
+        five lines, and every further write raises. Letting that
+        exception through would print a traceback, which the subject
+        counts as a crash, so it is caught here.
+
+        The remaining buffered output is sent to the null device before
+        returning: without that, the interpreter would try to flush it
+        while shutting down and print an "Exception ignored" notice that
+        no ``except`` can reach.
+
+        Returns:
+            141, the conventional status for a program stopped by a
+            closed pipe.
+        """
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except OSError:
+            pass
+        return EXIT_BROKEN_PIPE
 
 
 if __name__ == "__main__":

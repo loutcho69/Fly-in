@@ -433,7 +433,13 @@ class MapParser:
             key, separator, value = entry.partition("=")
             key = key.strip()
             value = value.strip()
-            if not separator or not key or not value:
+            if separator and key and not value:
+                raise ParseError(
+                    index, raw,
+                    f"metadata key {key!r} has no value; write "
+                    "'key=value' with no space around the '='",
+                )
+            if not separator or not key:
                 raise ParseError(
                     index, raw,
                     f"malformed metadata {entry!r} (expected 'key=value')",

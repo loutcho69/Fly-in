@@ -465,6 +465,23 @@ class Suite:
                 os.remove(path)
         return checked
 
+    @staticmethod
+    def _pipe_closed() -> int:
+        """Leave quietly when the reader of the output went away.
+
+        ``check.py | head`` closes the pipe early; the report is not
+        worth a traceback. Mirrors the guard of ``main.py``.
+
+        Returns:
+            141, the conventional status for a closed pipe.
+        """
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except OSError:
+            pass
+        return 141
+
     @classmethod
     def main(cls, argv: Optional[List[str]] = None) -> int:
         """Entry point of the checker.
@@ -502,6 +519,8 @@ class Suite:
         except (CheckError, FlyInError) as error:
             print(f"FAILED: {error}", file=sys.stderr)
             return 1
+        except BrokenPipeError:
+            return cls._pipe_closed()
         print("all checks passed")
         return 0
 
