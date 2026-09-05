@@ -221,7 +221,7 @@ class Application:
         unusable = PathFinder(mission.network).unusable_zones()
         if unusable:
             listed = ", ".join(unusable)
-            print(self._renderer.warning(f"unusable zone(s): {listed}"))
+            self.warn(f"unusable zone(s): {listed}")
 
     def _open_viewer(self, mission: Mission) -> None:
         """Open the graphical viewer, if the toolkit is available.
@@ -252,11 +252,7 @@ class Application:
         except Exception as error:
             self.warn(f"the viewer could not open a window: {error}")
             return
-        print(
-            self._renderer.note(
-                "viewer open; close the window to get the prompt back"
-            )
-        )
+        self._notify("viewer open; close the window to get the prompt back")
         try:
             window.run()
         except Exception as error:
@@ -265,10 +261,23 @@ class Application:
     def warn(self, message: str) -> None:
         """Print a warning on the error stream.
 
+        Everything that is not the simulation itself goes to the error
+        stream: the standard output must hold the flight log and
+        nothing else, so that redirecting it produces exactly the
+        format the subject defines.
+
         Args:
             message: the text to print.
         """
         print(self._renderer.warning(message), file=sys.stderr)
+
+    def _notify(self, message: str) -> None:
+        """Print an informative note on the error stream.
+
+        Args:
+            message: the text to print.
+        """
+        print(self._renderer.note(message), file=sys.stderr)
 
     @classmethod
     def main(cls, argv: Optional[List[str]] = None) -> int:
@@ -316,7 +325,10 @@ class Application:
         """
         try:
             devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, sys.stdout.fileno())
+            try:
+                os.dup2(devnull, sys.stdout.fileno())
+            finally:
+                os.close(devnull)
         except OSError:
             pass
         return EXIT_BROKEN_PIPE

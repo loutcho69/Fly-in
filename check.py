@@ -477,7 +477,10 @@ class Suite:
         """
         try:
             devnull = os.open(os.devnull, os.O_WRONLY)
-            os.dup2(devnull, sys.stdout.fileno())
+            try:
+                os.dup2(devnull, sys.stdout.fileno())
+            finally:
+                os.close(devnull)
         except OSError:
             pass
         return 141

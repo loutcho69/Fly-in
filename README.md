@@ -75,8 +75,12 @@ error: the graphical viewer needs tkinter, which is missing
 (on Debian or Ubuntu: sudo apt install python3-tk)
 ```
 
+The standard output holds the flight log and nothing else; every
+warning and every note goes to the error stream, so redirecting the
+output gives exactly the format the subject defines.
+
 Exit codes: `0` success, `1` invalid map or unsolvable network, `130`
-interrupted. No unhandled exception can reach the user: every expected
+interrupted, `141` when the reader of the output went away. No unhandled exception can reach the user: every expected
 failure is an exception deriving from `FlyInError`, caught in one place
 in `main.py`.
 
